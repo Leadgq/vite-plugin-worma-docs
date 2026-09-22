@@ -1,0 +1,75 @@
+{
+  "name": "vite-plugin-worma-docs",
+  "version": "0.1.0",
+  "description": "Vite/Webpack plugin: generate a local OpenAPI handbook (method, path, request, response) via wormajs.",
+  "keywords": [
+    "vite",
+    "vite-plugin",
+    "webpack",
+    "webpack-plugin",
+    "openapi",
+    "swagger",
+    "worma",
+    "api-docs"
+  ],
+  "license": "MIT",
+  "author": "Leadgq",
+  "homepage": "https://github.com/Leadgq/vite-plugin-worma-docs#readme",
+  "bugs": {
+    "url": "https://github.com/Leadgq/vite-plugin-worma-docs/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Leadgq/vite-plugin-worma-docs.git"
+  },
+  "type": "module",
+  "files": [
+    "dist",
+    "templates"
+  ],
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./webpack": {
+      "types": "./dist/webpack.d.ts",
+      "require": "./dist/webpack.cjs",
+      "import": "./dist/webpack.cjs",
+      "default": "./dist/webpack.cjs"
+    }
+  },
+  "scripts": {
+    "dev": "vite --config playground/vite.config.ts",
+    "dev:webpack": "pnpm build && webpack --config playground-webpack/webpack.config.cjs",
+    "build": "tsup && tsup --config tsup.webpack.config.ts && node scripts/copy-webpack-dts.mjs",
+    "prepublishOnly": "pnpm build"
+  },
+  "peerDependencies": {
+    "vite": "^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0",
+    "webpack": "^5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    },
+    "webpack": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "wormajs": "^0.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "tsup": "^8.5.0",
+    "typescript": "~5.9.2",
+    "vite": "^6.0.5",
+    "webpack": "^5.97.1",
+    "webpack-cli": "^6.0.1"
+  }
+}

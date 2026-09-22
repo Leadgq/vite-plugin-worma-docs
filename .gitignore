@@ -1,0 +1,10 @@
+node_modules
+dist
+*.local
+.DS_Store
+.worma
+.worma-cache
+playground/aidocs
+playground/dist
+playground-webpack/aidocs
+playground-webpack/dist

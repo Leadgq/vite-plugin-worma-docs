@@ -1,0 +1,25 @@
+---
+name: {{{skillName}}}
+description: >-
+  API request/response reference for {{{serverName}}} ({{{title}}} v{{{version}}}).
+  Use this skill to look up HTTP methods, URL paths, path/query parameters,
+  request body fields, and response types. Do not generate a worma HTTP client;
+  write requests with the project's existing request helper.
+  Key domains covered: {{#each tagedApis}}{{{tag}}}{{#unless @last}}, {{/unless}}{{/each}}.
+---
+
+> version {{{version}}}
+
+## Overview
+
+Local API handbook for {{{serverName}}}. Look up an endpoint in `references/`
+for method, path, request fields, and response fields.
+
+## API Directory ({{{serverName}}})
+
+{{#each tagedApis}}
+- **{{{tag}}}**
+{{#each apis}}
+  - [{{{summary}}}](./references/{{{../tag}}}/{{{name}}}.md) `[{{{method}}}] {{{path}}}`
+{{/each}}
+{{/each}}

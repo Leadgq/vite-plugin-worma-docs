@@ -1,0 +1,37 @@
+## API
+
+{{{currentApi.summary}}}
+
+`[{{{currentApi.method}}}] {{{currentApi.path}}}`
+
+{{#if currentApi.pathParametersComment}}
+## Path Parameters
+
+```typescript
+{{{stripStarPrefix currentApi.pathParametersComment}}}
+```
+{{/if}}
+
+{{#if currentApi.queryParametersComment}}
+## Query Parameters
+
+```typescript
+{{{stripStarPrefix currentApi.queryParametersComment}}}
+```
+{{/if}}
+
+{{#if currentApi.requestBodyComment}}
+## Request Body
+
+```typescript
+{{{stripStarPrefix currentApi.requestBodyComment}}}
+```
+{{/if}}
+
+{{#if currentApi.responseComment}}
+## Response
+
+```typescript
+{{{stripStarPrefix currentApi.responseComment}}}
+```
+{{/if}}

@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import type { generate as GenerateFn } from 'wormajs'
 import type { aiDoc as AiDocFn, apiFilter as ApiFilterFn, swagger as SwaggerFn } from 'wormajs/plugin'
 
-export const PLUGIN_NAME = 'vite-plugin-worma-docs'
+export const PLUGIN_NAME = 'plugin-worma-docs'
 
 export interface WormaDocsOptions {
   /** OpenAPI / Swagger JSON URL or local path. */

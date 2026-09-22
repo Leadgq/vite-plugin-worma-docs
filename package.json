@@ -1,5 +1,5 @@
 {
-  "name": "vite-plugin-worma-docs",
+  "name": "plugin-worma-docs",
   "version": "0.1.0",
   "description": "Vite/Webpack plugin: generate a local OpenAPI handbook (method, path, request, response) via wormajs.",
   "keywords": [

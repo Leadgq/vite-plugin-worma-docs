@@ -1,4 +1,4 @@
-# vite-plugin-worma-docs
+# plugin-worma-docs
 
 Vite / Webpack plugin that turns an OpenAPI spec into a local handbook: method, path, request fields, response fields. No generated HTTP client.
 
@@ -6,7 +6,7 @@ Vite / Webpack plugin that turns an OpenAPI spec into a local handbook: method, 
 
 ```ts
 import { defineConfig } from 'vite'
-import { wormaDocs } from 'vite-plugin-worma-docs'
+import { wormaDocs } from 'plugin-worma-docs'
 
 export default defineConfig({
   plugins: [
@@ -22,7 +22,7 @@ export default defineConfig({
 ## Webpack 5
 
 ```js
-const { WormaDocsWebpackPlugin } = require('vite-plugin-worma-docs/webpack')
+const { WormaDocsWebpackPlugin } = require('plugin-worma-docs/webpack')
 
 module.exports = {
   plugins: [

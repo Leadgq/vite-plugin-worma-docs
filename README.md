@@ -19,6 +19,37 @@ export default defineConfig({
 })
 ```
 
+Several independent specs:
+
+```ts
+wormaDocs({
+  swagger: [
+    'https://api-a.example.com/swagger/v1/swagger.json',
+    'https://api-b.example.com/swagger/v1/swagger.json',
+  ],
+  output: 'src/api/aidocs',
+})
+```
+
+Different tags / folders per spec:
+
+```ts
+wormaDocs({
+  swagger: [
+    {
+      swagger: 'https://api-a.example.com/swagger/v1/swagger.json',
+      tags: ['CompanySupervision'],
+      output:"src/api/data-center"
+    },
+    {
+      swagger: 'https://api-b.example.com/swagger/v1/swagger.json',
+      tags: ['Tender'],
+      output: 'src/api/aidocs-tender',
+    },
+  ],
+})
+```
+
 ## Webpack 5
 
 ```js
@@ -38,7 +69,7 @@ module.exports = {
 
 | Name | Default | Description |
 | --- | --- | --- |
-| `swagger` | required | OpenAPI / Swagger JSON URL or path |
+| `swagger` | required | One URL, several URLs, or `{ swagger, tags?, output? }` objects |
 | `output` | `src/api/aidocs` | Handbook directory, relative to project root |
 | `tags` | all tags | Only generate these OpenAPI tags |
 | `enable` | `true` | Skip generation when `false` |

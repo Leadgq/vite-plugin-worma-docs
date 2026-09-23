@@ -4,9 +4,10 @@ import {
   generateWormaDocs,
   logWormaDocsError,
   type WormaDocsOptions,
+  type WormaDocsSource,
 } from './core'
 
-export type { WormaDocsOptions }
+export type { WormaDocsOptions, WormaDocsSource }
 
 export class WormaDocsWebpackPlugin {
   private generatedOnce = false

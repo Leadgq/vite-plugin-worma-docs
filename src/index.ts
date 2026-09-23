@@ -5,9 +5,10 @@ import {
   generateWormaDocs,
   logWormaDocsError,
   type WormaDocsOptions,
+  type WormaDocsSource,
 } from './core'
 
-export type { WormaDocsOptions }
+export type { WormaDocsOptions, WormaDocsSource }
 
 export function wormaDocs(options: WormaDocsOptions): Plugin {
   const { enable = true } = options

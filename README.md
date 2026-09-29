@@ -50,7 +50,7 @@ wormaDocs({
 })
 ```
 
-Same as worma `apiFilter` — one path, or a regex:
+Same as worma `apiFilter` — one path, or a regex. Do not set `tags` at the same time:
 
 ```ts
 wormaDocs({
@@ -96,8 +96,8 @@ module.exports = {
 | --- | --- | --- |
 | `swagger` | required | One URL, several URLs, or `{ swagger, tags?, output? }` objects |
 | `output` | `src/api/aidocs` | Handbook directory, relative to project root |
-| `tags` | all tags | Shortcut for `{ scope: 'tag', include }` |
-| `apiFilter` | all APIs | Same as wormajs `apiFilter()`: `{ scope, include, exclude }` or an array |
+| `tags` | all tags | Shortcut for `{ scope: 'tag', include }`. Mutually exclusive with `apiFilter` |
+| `apiFilter` | all APIs | Same as wormajs `apiFilter()`. Mutually exclusive with `tags` |
 | `enable` | `true` | Skip generation when `false` |
 | `force` | `false` | Ignore worma cache and refetch the spec |
 

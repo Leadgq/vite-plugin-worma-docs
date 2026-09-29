@@ -13,21 +13,18 @@ export const PLUGIN_NAME = 'plugin-worma-docs'
 
 export type { FilterApiConfig }
 
-export interface WormaDocsSource {
+type ExclusiveFilter =
+  | { tags?: string[], apiFilter?: never }
+  | { tags?: never, apiFilter?: FilterApiConfig | FilterApiConfig[] }
+
+export type WormaDocsSource = {
   /** OpenAPI / Swagger JSON URL or local path. */
   swagger: string
-  /** Only generate these OpenAPI tags. Inherit top-level `tags` if omitted. */
-  tags?: string[]
-  /**
-   * Same as wormajs `apiFilter()`: filter by `url` or `tag`.
-   * An array is a union (OR). Inherit top-level `apiFilter` if omitted.
-   */
-  apiFilter?: FilterApiConfig | FilterApiConfig[]
   /** Handbook output directory. Inherit top-level `output` if omitted. */
   output?: string
-}
+} & ExclusiveFilter
 
-export interface WormaDocsOptions {
+type WormaDocsShared = {
   /**
    * OpenAPI / Swagger JSON URL or local path.
    * Pass a string for one spec, a string array for several independent specs,
@@ -36,18 +33,13 @@ export interface WormaDocsOptions {
   swagger: string | string[] | WormaDocsSource[]
   /** Handbook output directory, relative to the project root. Default `src/api/aidocs`. */
   output?: string
-  /** Only generate these OpenAPI tags. Omit to include every tag. */
-  tags?: string[]
-  /**
-   * Same as wormajs `apiFilter()`. Use this to keep a single path, not a whole tag.
-   * `tags` is still a shortcut for `{ scope: 'tag', include }`.
-   */
-  apiFilter?: FilterApiConfig | FilterApiConfig[]
   /** Skip generation when false. Default true. */
   enable?: boolean
   /** Bypass worma cache and refetch the spec. Default false. */
   force?: boolean
 }
+
+export type WormaDocsOptions = WormaDocsShared & ExclusiveFilter
 
 const nodeRequire = createRequire(import.meta.url)
 const { generate } = nodeRequire('wormajs') as { generate: typeof GenerateFn }
@@ -69,30 +61,48 @@ function asFilterList(
 }
 
 function resolveApiFilter(source: WormaDocsSource): FilterApiConfig[] {
-  const fromTags = source.tags?.map(tag => ({
+  if (source.apiFilter) {
+    const tags = (source as { tags?: string[] }).tags
+    if (tags?.length) {
+      console.warn(`[${PLUGIN_NAME}] tags is ignored because apiFilter is set`)
+    }
+    return asFilterList(source.apiFilter)
+  }
+  return source.tags?.map(tag => ({
     scope: 'tag' as const,
     include: tag,
   })) ?? []
-  return [...fromTags, ...asFilterList(source.apiFilter)]
+}
+
+function pickFilter(
+  item: string | WormaDocsSource,
+  parent: ExclusiveFilter,
+): ExclusiveFilter {
+  if (typeof item === 'string') return parent
+  if (item.apiFilter) return { apiFilter: item.apiFilter }
+  if (item.tags) return { tags: item.tags }
+  return parent
 }
 
 function normalizeSources(options: WormaDocsOptions): WormaDocsSource[] {
-  const { swagger, tags, output, apiFilter: filter } = options
+  const { swagger, output } = options
+  const parentFilter: ExclusiveFilter = options.apiFilter
+    ? { apiFilter: options.apiFilter }
+    : { tags: options.tags }
   if (typeof swagger === 'string') {
-    return [{ swagger, tags, output, apiFilter: filter }]
+    return [{ swagger, output, ...parentFilter }]
   }
   if (!swagger.length) {
     throw new Error(`[${PLUGIN_NAME}] swagger must not be empty`)
   }
   return swagger.map((item) => {
     if (typeof item === 'string') {
-      return { swagger: item, tags, output, apiFilter: filter }
+      return { swagger: item, output, ...parentFilter }
     }
     return {
       swagger: item.swagger,
-      tags: item.tags ?? tags,
       output: item.output ?? output,
-      apiFilter: item.apiFilter ?? filter,
+      ...pickFilter(item, parentFilter),
     }
   })
 }

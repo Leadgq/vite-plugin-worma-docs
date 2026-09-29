@@ -6,9 +6,10 @@ import {
   logWormaDocsError,
   type WormaDocsOptions,
   type WormaDocsSource,
+  type FilterApiConfig,
 } from './core'
 
-export type { WormaDocsOptions, WormaDocsSource }
+export type { WormaDocsOptions, WormaDocsSource, FilterApiConfig }
 
 export function wormaDocs(options: WormaDocsOptions): Plugin {
   const { enable = true } = options

@@ -5,9 +5,10 @@ import {
   logWormaDocsError,
   type WormaDocsOptions,
   type WormaDocsSource,
+  type FilterApiConfig,
 } from './core'
 
-export type { WormaDocsOptions, WormaDocsSource }
+export type { WormaDocsOptions, WormaDocsSource, FilterApiConfig }
 
 export class WormaDocsWebpackPlugin {
   private generatedOnce = false

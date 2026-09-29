@@ -50,6 +50,31 @@ wormaDocs({
 })
 ```
 
+Same as worma `apiFilter` — one path, or a regex:
+
+```ts
+wormaDocs({
+  swagger: 'https://test2-gateway.hnyotech.com.cn/tenderalertapi/swagger/v1/swagger.json',
+  output: 'src/api/aidocs',
+  apiFilter: {
+    scope: 'url',
+    include: /\/api\/Alert\/FindAlert(Overview|Trend)$/,
+  },
+})
+```
+
+Several paths (union / OR):
+
+```ts
+wormaDocs({
+  swagger: '.../swagger.json',
+  apiFilter: [
+    { scope: 'url', include: '/api/Alert/FindAlertOverview' },
+    { scope: 'url', include: '/api/Alert/FindAlertTrend' },
+  ],
+})
+```
+
 ## Webpack 5
 
 ```js
@@ -71,7 +96,8 @@ module.exports = {
 | --- | --- | --- |
 | `swagger` | required | One URL, several URLs, or `{ swagger, tags?, output? }` objects |
 | `output` | `src/api/aidocs` | Handbook directory, relative to project root |
-| `tags` | all tags | Only generate these OpenAPI tags |
+| `tags` | all tags | Shortcut for `{ scope: 'tag', include }` |
+| `apiFilter` | all APIs | Same as wormajs `apiFilter()`: `{ scope, include, exclude }` or an array |
 | `enable` | `true` | Skip generation when `false` |
 | `force` | `false` | Ignore worma cache and refetch the spec |
 

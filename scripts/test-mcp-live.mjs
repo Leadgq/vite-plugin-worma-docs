@@ -1,12 +1,25 @@
 import assert from 'node:assert/strict'
 import { fileURLToPath } from 'node:url'
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import path from 'node:path'
+import os from 'node:os'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 
 // Opt-in smoke test: fetches only the configured Swagger document, never business endpoints.
+const generateClient = process.argv.includes('--generate-client')
+let configPath = fileURLToPath(new URL('../playground-mcp/worma-mcp.json', import.meta.url))
+let scratch
+if (generateClient) {
+  scratch = await mkdtemp(path.join(os.tmpdir(), 'worma-live-client-'))
+  const original = JSON.parse(await readFile(configPath, 'utf8'))
+  configPath = path.join(scratch, 'worma-mcp.json')
+  await writeFile(configPath, JSON.stringify({ ...original, generateClient: true,
+    client: { output: 'generated', library: 'axios', type: 'module' } }))
+}
 const transport = new StdioClientTransport({ command: process.execPath, args: [
   fileURLToPath(new URL('../dist/mcp-cli.js', import.meta.url)), '--config',
-  fileURLToPath(new URL('../playground-mcp/worma-mcp.json', import.meta.url)),
+  configPath,
 ], stderr: 'pipe' })
 let stderr = ''
 transport.stderr?.on('data', chunk => { stderr += chunk })
@@ -35,8 +48,18 @@ try {
   const responseFields = countProperties(api.responses)
   assert.ok(requestFields > 0 || api.parameters.length > 0, 'Expected documented input fields')
   assert.ok(responseFields > 0, 'Expected expanded response fields')
+  let generatedFiles
+  if (generateClient) {
+    const generatedDir = path.join(scratch, 'generated')
+    const entries = await readdir(generatedDir, { recursive: true })
+    generatedFiles = entries.filter(filename => filename.endsWith('.js'))
+    assert.ok(generatedFiles.length > 0)
+    const code = (await Promise.all(generatedFiles.map(filename => readFile(path.join(generatedDir, filename), 'utf8')))).join('\n')
+    assert.ok(code.includes(selected.path), 'Generated client should contain the selected real endpoint')
+    assert.ok(code.includes('axios'), 'Generated client should use Axios')
+  }
   console.log(JSON.stringify({ tools: tools.map(tool => tool.name), total, method: api.method,
-    path: api.path, requestFields, responseFields, warnings }, null, 2))
+    path: api.path, requestFields, responseFields, warnings, generatedJavaScriptFiles: generatedFiles?.length }, null, 2))
 }
 catch (error) {
   if (stderr) process.stderr.write(stderr)
@@ -45,4 +68,5 @@ catch (error) {
 finally {
   await client.close()
   await transport.close()
+  if (scratch) await rm(scratch, { recursive: true, force: true })
 }

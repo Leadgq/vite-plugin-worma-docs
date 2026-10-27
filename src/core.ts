@@ -2,6 +2,8 @@ import { createRequire } from 'node:module'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { generate as GenerateFn } from 'wormajs'
+import { generateClients } from './openapi/generator'
+import type { ClientGenerationSettings } from './openapi/client-config'
 import type {
   aiDoc as AiDocFn,
   apiFilter as ApiFilterFn,
@@ -12,6 +14,7 @@ import type {
 export const PLUGIN_NAME = 'plugin-worma-docs'
 
 export type { FilterApiConfig }
+export type { ClientOptions, ClientGenerationSettings } from './openapi/client-config'
 
 type ExclusiveFilter =
   | { tags?: string[], apiFilter?: never }
@@ -22,7 +25,7 @@ export type WormaDocsSource = {
   swagger: string
   /** Handbook output directory. Inherit top-level `output` if omitted. */
   output?: string
-} & ExclusiveFilter
+} & ExclusiveFilter & ClientGenerationSettings
 
 type WormaDocsShared = {
   /**
@@ -39,7 +42,7 @@ type WormaDocsShared = {
   force?: boolean
 }
 
-export type WormaDocsOptions = WormaDocsShared & ExclusiveFilter
+export type WormaDocsOptions = WormaDocsShared & ExclusiveFilter & ClientGenerationSettings
 
 const nodeRequire = createRequire(import.meta.url)
 const { generate } = nodeRequire('wormajs') as { generate: typeof GenerateFn }
@@ -102,6 +105,8 @@ function normalizeSources(options: WormaDocsOptions): WormaDocsSource[] {
     return {
       swagger: item.swagger,
       output: item.output ?? output,
+      generateClient: item.generateClient,
+      client: item.client,
       ...pickFilter(item, parentFilter),
     }
   })
@@ -156,6 +161,12 @@ export async function generateWormaDocs(
     catch (error) {
       logWormaDocsError(error, source.swagger)
     }
+  }
+  try {
+    await generateClients(sources.map((source, index) => ({ ...source, name: `source-${index + 1}` })), options, projectPath)
+  }
+  catch (error) {
+    console.warn(`[${PLUGIN_NAME}] failed to generate API client: ${error instanceof Error ? error.message : String(error)}`)
   }
 }
 

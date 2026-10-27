@@ -1,4 +1,10 @@
 {
+  "generateClient": true,
+  "client": {
+    "output": "generated",
+    "library": "axios",
+    "type": "module"
+  },
   "sources": [
     {
       "name": "knowledgebase",

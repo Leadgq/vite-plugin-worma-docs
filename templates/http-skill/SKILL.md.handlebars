@@ -3,8 +3,8 @@ name: {{{skillName}}}
 description: >-
   API request/response reference for {{{serverName}}} ({{{title}}} v{{{version}}}).
   Use this skill to look up HTTP methods, URL paths, path/query parameters,
-  request body fields, and response types. Do not generate a worma HTTP client;
-  write requests with the project's existing request helper.
+  request body fields, and response types. Use an existing generated client
+  when available; otherwise write requests with the project's existing request helper.
   Key domains covered: {{#each tagedApis}}{{{tag}}}{{#unless @last}}, {{/unless}}{{/each}}.
 ---
 

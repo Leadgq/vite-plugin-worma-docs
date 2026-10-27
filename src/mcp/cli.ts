@@ -15,7 +15,11 @@ async function main() {
   }
   if (!values.config) throw new Error('Missing --config. Run worma-docs-mcp --help for usage.')
   const filename = path.resolve(values.config)
-  const repository = await OpenApiRepository.load(await loadConfig(filename), path.dirname(filename))
+  const config = await loadConfig(filename)
+  const baseDir = path.dirname(filename)
+  const repository = await OpenApiRepository.load(config, baseDir)
+  const generated = await repository.generateClients(config, baseDir)
+  for (const output of generated) process.stderr.write(`[worma-docs-mcp] Generated client: ${output}\n`)
   const server = createWormaMcpServer(repository)
   await server.connect(new StdioServerTransport())
 }

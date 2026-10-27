@@ -13,7 +13,7 @@ test('stdio handshake, read-only tools, validation, query and no subsequent netw
   const http = createServer((req, res) => {
     requests.push({ method: req.method, url: req.url })
     res.setHeader('Content-Type', 'application/json')
-    res.end(JSON.stringify({ openapi: '3.0.3', paths: { '/health': { get: {
+    res.end(JSON.stringify({ openapi: '3.0.3', info: { title: 'Health', version: '1.0' }, paths: { '/health': { get: {
       summary: 'Health check', responses: { 200: { description: 'OK', content: {
         'application/json': { schema: { type: 'object', properties: { healthy: { type: 'boolean' } } } },
       } } },
@@ -47,6 +47,22 @@ test('stdio handshake, read-only tools, validation, query and no subsequent netw
     assert.deepEqual(requests, [{ method: 'GET', url: '/swagger.json' }])
     assert.equal(stderr, '')
     assert.equal(await (await import('node:fs/promises')).readFile(configFile, 'utf8'), configText)
+    await client.close()
+    await writeFile(configFile, JSON.stringify({ ...JSON.parse(configText), generateClient: true,
+      client: { library: 'fetch', output: 'generated', type: 'module' } }))
+    const enabledTransport = new StdioClientTransport({ command: process.execPath,
+      args: [fileURLToPath(new URL('../dist/mcp-cli.js', import.meta.url)), '--config', configFile], stderr: 'pipe' })
+    const enabledClient = new Client({ name: 'enabled-test', version: '1' })
+    try {
+      // A successful handshake proves generator logging did not corrupt stdout.
+      await enabledClient.connect(enabledTransport)
+      const enabledList = await enabledClient.callTool({ name: 'list_apis', arguments: {} })
+      assert.equal(enabledList.structuredContent.total, 1)
+      const generated = await (await import('node:fs/promises')).readFile(path.join(directory, 'generated', 'index.js'), 'utf8')
+      assert.match(generated, /fetch/)
+      assert.deepEqual(requests, [{ method: 'GET', url: '/swagger.json' }, { method: 'GET', url: '/swagger.json' }])
+    }
+    finally { await enabledClient.close(); await enabledTransport.close() }
   }
   finally {
     await client.close()

@@ -1,4 +1,6 @@
 import { loadSource } from './loader'
+import { generateClients } from './generator'
+import type { ClientGenerationSettings } from './client-config'
 import { expandReferences, resolveObject } from './references'
 import { configSchema, object, type ApiQuery, type ApiSummary, type JsonObject, type JsonValue, type LoadedSource, type McpConfig } from './types'
 
@@ -45,6 +47,11 @@ export class OpenApiRepository {
     const loaded: LoadedSource[] = []
     for (const source of checked.sources) loaded.push(await loadSource(source, baseDir))
     return new OpenApiRepository(loaded)
+  }
+
+  /** Explicit configuration action, separate from the read-only MCP tools. */
+  async generateClients(settings: ClientGenerationSettings, baseDir: string): Promise<string[]> {
+    return generateClients(this.sources.map(({ source, document }) => ({ ...source, document })), settings, baseDir)
   }
 
   list(query: ApiQuery = {}) {

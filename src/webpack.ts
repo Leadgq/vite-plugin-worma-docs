@@ -9,6 +9,7 @@ import {
 } from './core'
 
 export type { WormaDocsOptions, WormaDocsSource, FilterApiConfig }
+export type { ClientOptions, ClientGenerationSettings } from './openapi/client-config'
 
 export class WormaDocsWebpackPlugin {
   private generatedOnce = false

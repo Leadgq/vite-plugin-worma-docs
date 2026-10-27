@@ -1,10 +1,10 @@
 # plugin-worma-docs
 
-Vite / Webpack plugin that turns an OpenAPI spec into a local handbook, plus a read-only MCP server for querying API contracts without generating Markdown files. No generated HTTP client.
+Vite / Webpack plugin that turns an OpenAPI spec into a local handbook, plus a read-only MCP server for querying API contracts without generating Markdown files. HTTP client generation is optional and disabled by default.
 
 ## Read-only MCP
 
-MCP 和现有 Vite / Webpack 插件是同一个 npm 包的独立入口。使用 MCP 不需要配置构建插件，不会生成 `.md`、请求代码或磁盘缓存。当前使用单包、多入口结构，`playground-mcp/` 是运行示例，无需 `pnpm-workspace.yaml`。只有需要独立发布、版本或依赖时才有必要拆成多包。
+MCP 和现有 Vite / Webpack 插件是同一个 npm 包的独立入口。使用 MCP 不需要配置构建插件，默认不会生成 `.md`、请求代码或磁盘缓存。只有显式设置 `generateClient: true` 才会在启动时生成请求代码。当前使用单包、多入口结构，`playground-mcp/` 是运行示例，无需 `pnpm-workspace.yaml`。只有需要独立发布、版本或依赖时才有必要拆成多包。
 
 要求 Node.js 18.18+。配置文件采用 JSON，例如 `/absolute/path/worma-mcp.json`：
 
@@ -101,7 +101,7 @@ npx --yes --package=plugin-worma-docs worma-docs-mcp --config /absolute/path/wor
 
 ### 只读范围与刷新
 
-服务只在启动时读取用户配置的文档，之后工具查询使用内存数据。它没有写文件、修改 Swagger、执行业务接口或加载任意 URL 的工具。外部 `$ref` 不自动访问；多文件规范应先由用户打包为单个文档。当前不支持自定义认证请求头。
+服务只在启动时读取用户配置的文档，之后工具查询使用内存数据。它没有写文件、修改 Swagger、执行业务接口或加载任意 URL 的工具。显式开启请求代码生成时，仅启动阶段按配置写入专用输出目录，工具无法开启此功能。查询不会自动访问外部 `$ref`；多文件规范应先由用户打包为单个文档。当前不支持自定义认证请求头。
 
 所有来源加载成功后才连接客户端；任何来源失败都会退出并将错误写入 stderr。更新 Swagger 或配置后，需要重启 MCP 服务刷新。stdout 专用于 MCP 协议消息。
 
@@ -113,11 +113,82 @@ npx --yes --package=plugin-worma-docs worma-docs-mcp --config /absolute/path/wor
 pnpm typecheck
 pnpm test
 pnpm test:mcp:live
+pnpm test:mcp:live --generate-client
 ```
 
-`pnpm test` 构建三个入口并运行本地 OpenAPI 与 stdio MCP 集成测试，不访问公司网关。`test:mcp:live` 通过真实 MCP 客户端读取示例配置中的公司 Swagger，验证搜索、入参与响应结构；不调用业务接口，也不将公司文档存入仓库。
+`pnpm test` 构建三个入口并运行本地 OpenAPI 与 stdio MCP 集成测试，不访问公司网关。`test:mcp:live` 通过真实 MCP 客户端读取示例配置中的公司 Swagger，验证搜索、入参与响应结构；不调用业务接口。当前 playground 显式开启了代码生成，运行后将 Axios JavaScript 实现保留在 `playground-mcp/generated/` 供检查；该目录已被 Git 忽略。
+
+追加 `--generate-client` 会在临时目录中生成公司接口的 Axios JavaScript 客户端，验证后清理，不写入业务项目。
 
 程序化使用可从 `plugin-worma-docs/mcp` 导入 `OpenApiRepository`、`loadConfig` 和 `createWormaMcpServer`。原有插件使用方式如下。
+
+## 可选：生成请求代码
+
+三个入口共用 `generateClient` 和 `client` 配置。`generateClient` 默认为 `false`，JSON 中使用布尔值 `true` / `false`，不是字符串 `"yes"`。worma 根据 Swagger/OpenAPI 生成请求实现和类型，不是根据 Markdown 生成。
+
+### MCP 配置
+
+```json
+{
+  "generateClient": true,
+  "client": {
+    "output": "src/api/generated",
+    "library": "axios",
+    "type": "module"
+  },
+  "sources": [
+    {
+      "name": "knowledgebase",
+      "swagger": "https://dev3-gateway.hnyotech.com.cn/knowledgebaseapi/swagger/v1/swagger.json",
+      "tags": ["AiKnowledge"]
+    }
+  ]
+}
+```
+
+MCP 在启动时生成代码，生成成功后开始提供三个只读查询工具。它复用已加载的文档，不为生成再次抓取 Swagger。更新文档或配置后重启即可重新生成；`generateClient: false` 会停止后续生成，保留已经生成的文件。
+
+### Vite / Webpack 配置
+
+```ts
+wormaDocs({
+  swagger: 'https://example.com/openapi.json',
+  output: 'src/api/aidocs', // 现有 Markdown 输出目录
+  generateClient: true,
+  client: {
+    output: 'src/api/generated', // 独立的请求代码输出目录
+    library: 'axios',
+    type: 'typescript',
+  },
+})
+```
+
+Webpack 使用完全相同的选项：
+
+```js
+new WormaDocsWebpackPlugin({
+  swagger: 'https://example.com/openapi.json',
+  generateClient: true,
+  client: { output: 'src/api/generated', library: 'fetch', type: 'module' },
+})
+```
+
+插件仍按原来的生命周期生成 Markdown，开启开关后额外生成请求代码。`enable: false` 会跳过两种生成。现有 `tags` / `apiFilter` 筛选同时作用于请求代码，支持正则和函数筛选。
+
+| 配置 | 默认值 | 说明 |
+| --- | --- | --- |
+| `generateClient` | `false` | 显式开启请求实现生成 |
+| `client.output` | `src/api/generated` | MCP 相对于配置目录，插件相对于项目根目录 |
+| `client.library` | `axios` | `axios` / `fetch` / `ky` |
+| `client.type` | `typescript` | `typescript` / `module`（ESM JavaScript）/ `commonjs` |
+
+顶层配置作为所有来源的默认值。MCP 的 `sources` 对象和插件的 `swagger` 对象都可单独设置 `generateClient` / `client`；来源级选项覆盖顶层选项，`generateClient: false` 可以关闭某一来源。多来源时，顶层输出目录下默认按配置顺序分成 `source-1`、`source-2` 等子目录；来源级 `client.output` 则直接指定该来源的独立目录。各来源的输出目录不能相同或互相嵌套。
+
+输出目录必须在项目/配置目录内，并且是新目录、空目录，或带有本工具生成的 `.worma-client.json` 标记且属于同一来源的目录。不会直接覆盖已有手写请求目录；也不会自动删除停用或已从 Swagger 移除的旧文件。请使用专用生成目录并在接口变更后按需清理旧文件。
+
+生成使用 worma 内置模板，包含请求实现、初始化文件和类型声明。Axios / Ky 模板需要业务项目自行安装对应运行依赖，Fetch 模板使用运行环境的 Fetch API。生成器不会自动安装依赖或改写业务页面，也不会自动接入宿主注入的请求实例；认证、baseURL、拦截器及调用方式需要根据生成的入口配置。不要把已经解包的业务响应再次解包。
+
+代码生成在隔离进程中运行，日志不会写入 MCP 的协议 stdout；生成缓存与临时 Swagger 副本会在临时目录内清理，不会在业务项目留下 `.worma-cache`。MCP 生成失败会退出并通过 stderr 报错；Vite / Webpack 保留原有的警告策略，不阻断构建。
 
 ## Vite
 
@@ -217,5 +288,7 @@ module.exports = {
 | `apiFilter` | all APIs | Same as wormajs `apiFilter()`. Mutually exclusive with `tags` |
 | `enable` | `true` | Skip generation when `false` |
 | `force` | `false` | Ignore worma cache and refetch the spec |
+| `generateClient` | `false` | Also generate HTTP request code; may be overridden per source |
+| `client` | see above | Request code output directory, library, and JS/TS format |
 
 Generation runs once on Vite `buildStart` and once on Webpack `beforeRun` / first `watchRun`. A failed fetch logs a warning and does not fail the build.

@@ -10,6 +10,7 @@ import {
 } from './core'
 
 export type { WormaDocsOptions, WormaDocsSource, FilterApiConfig }
+export type { ClientOptions, ClientGenerationSettings } from './openapi/client-config'
 
 export function wormaDocs(options: WormaDocsOptions): Plugin {
   const { enable = true } = options

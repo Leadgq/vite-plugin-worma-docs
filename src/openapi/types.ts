@@ -1,13 +1,16 @@
 import { z } from 'zod'
+import { clientSettingsShape } from './client-config'
 
 export const sourceSchema = z.object({
   name: z.string().trim().min(1),
   swagger: z.string().trim().min(1),
   tags: z.array(z.string().min(1)).optional(),
+  ...clientSettingsShape,
 }).strict()
 
 export const configSchema = z.object({
   sources: z.array(sourceSchema).min(1),
+  ...clientSettingsShape,
 }).strict().superRefine(({ sources }, ctx) => {
   const names = sources.map(source => source.name)
   if (new Set(names).size !== names.length) {

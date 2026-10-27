@@ -1,72 +1,194 @@
 # plugin-worma-docs
 
-Vite / Webpack plugin that turns an OpenAPI spec into a local handbook, plus a read-only MCP server for querying API contracts without generating Markdown files. HTTP client generation is optional and disabled by default.
+将 Swagger / OpenAPI 转为本地接口手册，或通过 MCP 让 AI 按需查询接口。可选生成 Axios、Fetch、Ky 请求实现及类型声明，默认关闭。
 
-## Read-only MCP
+同一个 npm 包提供三个入口：
 
-MCP 和现有 Vite / Webpack 插件是同一个 npm 包的独立入口。使用 MCP 不需要配置构建插件，默认不会生成 `.md`、请求代码或磁盘缓存。只有显式设置 `generateClient: true` 才会在启动时生成请求代码。当前使用单包、多入口结构，`playground-mcp/` 是运行示例，无需 `pnpm-workspace.yaml`。只有需要独立发布、版本或依赖时才有必要拆成多包。
+| 使用方式 | 入口 | 默认行为 |
+| --- | --- | --- |
+| Vite 插件 | `plugin-worma-docs` | 在构建钩子中生成 Markdown 接口手册 |
+| Webpack 5 插件 | `plugin-worma-docs/webpack` | 在运行钩子中生成 Markdown 接口手册 |
+| stdio MCP | `worma-docs-mcp` 命令 | 只读查询接口，不生成 Markdown 或请求代码 |
 
-要求 Node.js 18.18+。配置文件采用 JSON，例如 `/absolute/path/worma-mcp.json`：
+请求代码根据 Swagger/OpenAPI 生成，不依赖 Markdown。MCP 可以独立使用，不需要安装或接入 Vite / Webpack 插件。
+
+## 目录
+
+- [安装与环境](#安装与环境)
+- [MCP：单个与多个 Swagger](#mcp单个与多个-swagger)
+- [Vite：单个与多个 Swagger](#vite单个与多个-swagger)
+- [Webpack：单个与多个 Swagger](#webpack单个与多个-swagger)
+- [请求代码配置与继承规则](#请求代码配置与继承规则)
+- [全部配置项](#全部配置项)
+- [MCP 工具与只读范围](#mcp-工具与只读范围)
+- [本地开发、测试与发布](#本地开发测试与发布)
+
+## 安装与环境
+
+要求 Node.js 18.18+；构建插件支持的 Vite / Webpack 版本以 package.json 的 peerDependencies 为准。
+
+使用构建插件时安装：
+
+```sh
+pnpm add -D plugin-worma-docs
+```
+
+只使用 MCP 时可通过 npx 运行，无需将本包安装到业务项目：
+
+```sh
+npx --yes --package=plugin-worma-docs worma-docs-mcp --config /absolute/path/worma-mcp.json
+```
+
+生成 Axios / Ky 客户端时，业务项目还需安装对应运行依赖：
+
+```sh
+pnpm add axios
+# 或者使用 Ky 模板：
+pnpm add ky
+```
+
+Fetch 模板使用运行环境提供的 Fetch API。生成器不会自动安装依赖。
+
+## MCP：单个与多个 Swagger
+
+MCP 配置是一个 JSON 文件，例如项目根目录的 `worma-mcp.json`。即使只有一个 Swagger，也使用 `sources` 数组。
+
+### 单个 Swagger：只查询，不生成代码
 
 ```json
 {
   "sources": [
     {
       "name": "knowledgebase",
-      "swagger": "https://example.com/swagger/v1/swagger.json",
-      "tags": ["Knowledge"]
-    },
-    {
-      "name": "orders",
-      "swagger": "./specs/orders.yaml"
+      "swagger": "https://example.com/knowledgebase/openapi.json"
     }
   ]
 }
 ```
 
-- `name` 必填且不能重复，用于区分多个来源。
-- `swagger` 支持 HTTP(S) 文档地址或本地 JSON / YAML 文件。本地相对路径基于配置文件所在目录解析。
-- `tags` 可选，按标签精确匹配，多个标签取并集；不填或空数组表示全部接口。
-- 支持 Swagger 2.0、OpenAPI 3.0 / 3.1。远程读取超时为 30 秒，文档大小上限 20 MiB，不跟随 HTTP 重定向。
+省略 `generateClient` 等同于 `false`。也可以显式填写 `"generateClient": false`。
 
-### 在本地开发版本中接入
-
-```sh
-pnpm install
-pnpm build
-pnpm dev:mcp
-```
-
-`dev:mcp` 使用 `playground-mcp/worma-mcp.json` 中的公司文档地址。它是 stdio 服务：启动后等待 MCP 消息，终端无输出是正常现象。修改代码后需要重新构建、重启。
-
-在支持 stdio MCP 的客户端中，将服务命令指向已构建的入口。下面为通用 JSON 配置示例，具体配置位置取决于客户端：
+### 单个 Swagger：查询并生成请求代码
 
 ```json
 {
-  "mcpServers": {
-    "worma-docs": {
-      "command": "node",
-      "args": [
-        "D:/project/learn/vite-plugin-worma-docs/dist/mcp-cli.js",
-        "--config",
-        "D:/project/learn/vite-plugin-worma-docs/playground-mcp/worma-mcp.json"
-      ]
+  "generateClient": true,
+  "client": {
+    "output": "src/api/generated/knowledgebase",
+    "library": "axios",
+    "type": "module",
+    "nameStyle": "camelCase"
+  },
+  "sources": [
+    {
+      "name": "knowledgebase",
+      "swagger": "https://example.com/knowledgebase/openapi.json",
+      "tags": ["AiKnowledge", "KnowledgeBase"]
     }
-  }
+  ]
 }
 ```
 
-替换为自己机器上的绝对路径，由客户端启动服务，无需同时手动运行 `dev:mcp`。
+服务启动时先读取文档，再生成代码，成功后提供 MCP 工具。上例仅查询和生成所选标签的接口；删除 `tags` 可处理全部接口。
 
-### 发布新版 npm 包之后
+### 多个 Swagger：只查询，不生成代码
 
-下面的命令需要先将包含 MCP 入口的新版发布到 npm；旧的已发布版本可能没有此命令：
-
-```sh
-npx --yes --package=plugin-worma-docs worma-docs-mcp --config /absolute/path/worma-mcp.json
+```json
+{
+  "sources": [
+    {
+      "name": "knowledgebase",
+      "swagger": "https://example.com/knowledgebase/openapi.json"
+    },
+    {
+      "name": "orders",
+      "swagger": "./specs/orders.yaml",
+      "tags": ["Order"]
+    }
+  ]
+}
 ```
 
-相应的客户端配置：
+每个 `name` 必须唯一。支持 HTTP(S) 文档地址，以及本地 JSON / YAML 文件；本地相对路径基于配置文件所在目录解析。
+
+### 多个 Swagger：公共默认配置 + 各来源覆盖
+
+```json
+{
+  "generateClient": true,
+  "client": {
+    "library": "axios",
+    "type": "module",
+    "nameStyle": "camelCase"
+  },
+  "sources": [
+    {
+      "name": "knowledgebase",
+      "swagger": "https://example.com/knowledgebase/openapi.json",
+      "client": {
+        "output": "src/api/generated/knowledgebase"
+      }
+    },
+    {
+      "name": "orders",
+      "swagger": "https://example.com/orders/openapi.json",
+      "client": {
+        "output": "src/api/generated/orders",
+        "library": "fetch",
+        "type": "typescript"
+      }
+    },
+    {
+      "name": "audit",
+      "swagger": "./specs/audit.json",
+      "generateClient": false
+    }
+  ]
+}
+```
+
+| 来源 | 是否生成请求 | 输出目录 | 请求库 | 格式 | 方法名 |
+| --- | --- | --- | --- | --- | --- |
+| knowledgebase | 是 | src/api/generated/knowledgebase | Axios | ESM JavaScript | camelCase |
+| orders | 是 | src/api/generated/orders | Fetch | TypeScript | camelCase |
+| audit | 否，仍可通过 MCP 查询 | — | — | — | — |
+
+### 多个 Swagger：每个来源完全独立配置
+
+不需要公共默认值时，可以完全省略顶层的 `generateClient` 和 `client`：
+
+```json
+{
+  "sources": [
+    {
+      "name": "knowledgebase",
+      "swagger": "https://example.com/knowledgebase/openapi.json",
+      "generateClient": true,
+      "client": {
+        "output": "generated/knowledgebase",
+        "library": "axios",
+        "type": "module",
+        "nameStyle": "camelCase"
+      }
+    },
+    {
+      "name": "orders",
+      "swagger": "./specs/orders.yaml",
+      "generateClient": true,
+      "client": {
+        "output": "generated/orders",
+        "library": "ky",
+        "type": "typescript",
+        "nameStyle": "camelCase"
+      }
+    }
+  ]
+}
+```
+
+### 接入 MCP 客户端
+
+在支持 stdio MCP 的客户端中添加服务。下面是通用 JSON 示例，具体配置位置由客户端决定；将路径替换为实际的配置文件绝对路径：
 
 ```json
 {
@@ -78,119 +200,27 @@ npx --yes --package=plugin-worma-docs worma-docs-mcp --config /absolute/path/wor
         "--package=plugin-worma-docs",
         "worma-docs-mcp",
         "--config",
-        "/absolute/path/worma-mcp.json"
+        "D:/your-project/worma-mcp.json"
       ]
     }
   }
 }
 ```
 
-### AI 可以查询什么
+需要固定版本时，将包参数改为 `--package=plugin-worma-docs@你的版本号`。升级后应更新固定版本号并重启服务。首次下载包、读取文档和生成代码可能较慢，可在客户端中适当增加启动超时。
 
-| 工具 | 参数 | 内容 |
-| --- | --- | --- |
-| `list_apis` | `source?`, `tag?`, `method?`, `offset?`, `limit?` | 来源信息、接口摘要、稳定的接口 ID 和分页位置 |
-| `search_apis` | `query` 及上述筛选参数 | 搜索路径、摘要、描述、operationId、标签，忽略大小写，空格分隔的词需全部匹配 |
-| `get_api_detail` | `id`, `maxDepth?` | 参数位置、必填项、请求体、各状态码响应、媒体类型、响应头、嵌套结构、枚举、约束、示例及认证声明 |
+客户端负责启动服务，无需另外手动运行一份。stdio 服务启动后等待协议消息，没有普通终端输出是正常现象。
 
-列表默认每页 20 条，最多 100 条；返回 `nextOffset`，为 `null` 表示结束。工具参数 `method` 使用大写。详情必须使用列表或搜索返回的完整 `id`，例如 `knowledgebase::POST /api/Example/Query`。
+CLI 只有以下选项，生成配置写在 JSON 文件中：
 
-可以向 AI 提问：“搜索知识库目录接口，查看它的入参和响应，然后用项目已有的 request 方法实现调用。” MCP 提供资料，业务代码编辑由客户端的其他工具完成。
+| 参数 | 说明 |
+| --- | --- |
+| `--config <path>` | 必填，JSON 配置文件路径；推荐使用绝对路径 |
+| `--help` / `-h` | 显示命令说明 |
 
-内部 `$ref` 按需展开，保留 `allOf` / `oneOf` / `anyOf`。循环引用、缺失引用、外部引用和展开限制会出现在 `warnings` 中；保留的引用节点也会带有 `x-worma-ref-status`。默认最多展开 8 层引用，可通过 `maxDepth` 调整到 1–20；另有结构深度和节点数量限制，截断节点标为 `x-worma-truncated`。响应是文档声明的结构，缺失的 schema 代表未知，不会猜测实际返回字段。
+## Vite：单个与多个 Swagger
 
-### 只读范围与刷新
-
-服务只在启动时读取用户配置的文档，之后工具查询使用内存数据。它没有写文件、修改 Swagger、执行业务接口或加载任意 URL 的工具。显式开启请求代码生成时，仅启动阶段按配置写入专用输出目录，工具无法开启此功能。查询不会自动访问外部 `$ref`；多文件规范应先由用户打包为单个文档。当前不支持自定义认证请求头。
-
-所有来源加载成功后才连接客户端；任何来源失败都会退出并将错误写入 stderr。更新 Swagger 或配置后，需要重启 MCP 服务刷新。stdout 专用于 MCP 协议消息。
-
-只读限制针对本服务，客户端其他文件或终端工具的权限需单独控制。
-
-### 校验
-
-```sh
-pnpm typecheck
-pnpm test
-pnpm test:mcp:live
-pnpm test:mcp:live --generate-client
-```
-
-`pnpm test` 构建三个入口并运行本地 OpenAPI 与 stdio MCP 集成测试，不访问公司网关。`test:mcp:live` 通过真实 MCP 客户端读取示例配置中的公司 Swagger，验证搜索、入参与响应结构；不调用业务接口。当前 playground 显式开启了代码生成，运行后将 Axios JavaScript 实现保留在 `playground-mcp/generated/` 供检查；该目录已被 Git 忽略。
-
-追加 `--generate-client` 会在临时目录中生成公司接口的 Axios JavaScript 客户端，验证后清理，不写入业务项目。
-
-程序化使用可从 `plugin-worma-docs/mcp` 导入 `OpenApiRepository`、`loadConfig` 和 `createWormaMcpServer`。原有插件使用方式如下。
-
-## 可选：生成请求代码
-
-三个入口共用 `generateClient` 和 `client` 配置。`generateClient` 默认为 `false`，JSON 中使用布尔值 `true` / `false`，不是字符串 `"yes"`。worma 根据 Swagger/OpenAPI 生成请求实现和类型，不是根据 Markdown 生成。
-
-### MCP 配置
-
-```json
-{
-  "generateClient": true,
-  "client": {
-    "output": "src/api/generated",
-    "library": "axios",
-    "type": "module"
-  },
-  "sources": [
-    {
-      "name": "knowledgebase",
-      "swagger": "https://dev3-gateway.hnyotech.com.cn/knowledgebaseapi/swagger/v1/swagger.json",
-      "tags": ["AiKnowledge"]
-    }
-  ]
-}
-```
-
-MCP 在启动时生成代码，生成成功后开始提供三个只读查询工具。它复用已加载的文档，不为生成再次抓取 Swagger。更新文档或配置后重启即可重新生成；`generateClient: false` 会停止后续生成，保留已经生成的文件。
-
-### Vite / Webpack 配置
-
-```ts
-wormaDocs({
-  swagger: 'https://example.com/openapi.json',
-  output: 'src/api/aidocs', // 现有 Markdown 输出目录
-  generateClient: true,
-  client: {
-    output: 'src/api/generated', // 独立的请求代码输出目录
-    library: 'axios',
-    type: 'typescript',
-  },
-})
-```
-
-Webpack 使用完全相同的选项：
-
-```js
-new WormaDocsWebpackPlugin({
-  swagger: 'https://example.com/openapi.json',
-  generateClient: true,
-  client: { output: 'src/api/generated', library: 'fetch', type: 'module' },
-})
-```
-
-插件仍按原来的生命周期生成 Markdown，开启开关后额外生成请求代码。`enable: false` 会跳过两种生成。现有 `tags` / `apiFilter` 筛选同时作用于请求代码，支持正则和函数筛选。
-
-| 配置 | 默认值 | 说明 |
-| --- | --- | --- |
-| `generateClient` | `false` | 显式开启请求实现生成 |
-| `client.output` | `src/api/generated` | MCP 相对于配置目录，插件相对于项目根目录 |
-| `client.library` | `axios` | `axios` / `fetch` / `ky` |
-| `client.type` | `typescript` | `typescript` / `module`（ESM JavaScript）/ `commonjs` |
-
-顶层配置作为所有来源的默认值。MCP 的 `sources` 对象和插件的 `swagger` 对象都可单独设置 `generateClient` / `client`；来源级选项覆盖顶层选项，`generateClient: false` 可以关闭某一来源。多来源时，顶层输出目录下默认按配置顺序分成 `source-1`、`source-2` 等子目录；来源级 `client.output` 则直接指定该来源的独立目录。各来源的输出目录不能相同或互相嵌套。
-
-输出目录必须在项目/配置目录内，并且是新目录、空目录，或带有本工具生成的 `.worma-client.json` 标记且属于同一来源的目录。不会直接覆盖已有手写请求目录；也不会自动删除停用或已从 Swagger 移除的旧文件。请使用专用生成目录并在接口变更后按需清理旧文件。
-
-生成使用 worma 内置模板，包含请求实现、初始化文件和类型声明。Axios / Ky 模板需要业务项目自行安装对应运行依赖，Fetch 模板使用运行环境的 Fetch API。生成器不会自动安装依赖或改写业务页面，也不会自动接入宿主注入的请求实例；认证、baseURL、拦截器及调用方式需要根据生成的入口配置。不要把已经解包的业务响应再次解包。
-
-代码生成在隔离进程中运行，日志不会写入 MCP 的协议 stdout；生成缓存与临时 Swagger 副本会在临时目录内清理，不会在业务项目留下 `.worma-cache`。MCP 生成失败会退出并通过 stderr 报错；Vite / Webpack 保留原有的警告策略，不阻断构建。
-
-## Vite
+### 单个 Swagger：生成接口手册
 
 ```ts
 import { defineConfig } from 'vite'
@@ -199,71 +229,127 @@ import { wormaDocs } from 'plugin-worma-docs'
 export default defineConfig({
   plugins: [
     wormaDocs({
-      swagger: 'https://petstore3.swagger.io/api/v3/openapi.json',
+      swagger: 'https://example.com/knowledgebase/openapi.json',
       output: 'src/api/aidocs',
-      tags: ['pet', 'store'],
+      tags: ['AiKnowledge', 'KnowledgeBase'],
     }),
   ],
 })
 ```
 
-Several independent specs:
+### 单个 Swagger：额外生成请求代码
 
 ```ts
 wormaDocs({
-  swagger: [
-    'https://api-a.example.com/swagger/v1/swagger.json',
-    'https://api-b.example.com/swagger/v1/swagger.json',
-  ],
+  swagger: 'https://example.com/knowledgebase/openapi.json',
   output: 'src/api/aidocs',
-})
-```
-
-Different tags / folders per spec:
-
-```ts
-wormaDocs({
-  swagger: [
-    {
-      swagger: 'https://api-a.example.com/swagger/v1/swagger.json',
-      tags: ['CompanySupervision'],
-      output:"src/api/data-center"
-    },
-    {
-      swagger: 'https://api-b.example.com/swagger/v1/swagger.json',
-      tags: ['Tender'],
-      output: 'src/api/aidocs-tender',
-    },
-  ],
-})
-```
-
-Same as worma `apiFilter` — one path, or a regex. Do not set `tags` at the same time:
-
-```ts
-wormaDocs({
-  swagger: 'https://test2-gateway.hnyotech.com.cn/tenderalertapi/swagger/v1/swagger.json',
-  output: 'src/api/aidocs',
-  apiFilter: {
-    scope: 'url',
-    include: /\/api\/Alert\/FindAlert(Overview|Trend)$/,
+  enable: true,
+  force: false,
+  generateClient: true,
+  client: {
+    output: 'src/api/generated/knowledgebase',
+    library: 'axios',
+    type: 'module',
+    nameStyle: 'camelCase',
   },
 })
 ```
 
-Several paths (union / OR):
+`output` 是 Markdown 目录；`client.output` 是请求代码目录，两者应分开。
+
+### 多个 Swagger：字符串数组简写
 
 ```ts
 wormaDocs({
-  swagger: '.../swagger.json',
-  apiFilter: [
-    { scope: 'url', include: '/api/Alert/FindAlertOverview' },
-    { scope: 'url', include: '/api/Alert/FindAlertTrend' },
+  swagger: [
+    'https://example.com/service-a/openapi.json',
+    'https://example.com/service-b/openapi.json',
   ],
 })
 ```
 
-## Webpack 5
+字符串数组中的来源继承顶层配置。此简写会共用默认 Markdown 输出目录；多份手册需要独立保留时，使用下面的对象数组，为每份指定不同的 `output`。
+
+### 多个 Swagger：独立手册目录、筛选和请求代码配置
+
+```ts
+wormaDocs({
+  generateClient: true,
+  client: {
+    library: 'axios',
+    type: 'module',
+    nameStyle: 'camelCase',
+  },
+  swagger: [
+    {
+      swagger: 'https://example.com/knowledgebase/openapi.json',
+      output: 'src/api/aidocs/knowledgebase',
+      tags: ['AiKnowledge', 'KnowledgeBase'],
+      client: {
+        output: 'src/api/generated/knowledgebase',
+      },
+    },
+    {
+      swagger: 'https://example.com/orders/openapi.json',
+      output: 'src/api/aidocs/orders',
+      apiFilter: {
+        scope: 'url',
+        include: /\/api\/Order\//,
+      },
+      client: {
+        output: 'src/api/generated/orders',
+        library: 'fetch',
+        type: 'typescript',
+      },
+    },
+    {
+      swagger: './specs/audit.json',
+      output: 'src/api/aidocs/audit',
+      generateClient: false,
+    },
+  ],
+})
+```
+
+第三个来源仍生成 Markdown，只关闭请求代码。也可以省略顶层 `client`，将完整的请求生成配置写在各个来源对象内。TypeScript 类型支持字符串数组或对象数组，建议不要混用两种元素。
+
+### 按 URL、标签、正则或函数筛选
+
+`tags` 和 `apiFilter` 互斥，同一层配置选择其中一个。`apiFilter` 是 Vite / Webpack 专用配置，MCP JSON 不支持此字段。
+
+```ts
+wormaDocs({
+  swagger: 'https://example.com/openapi.json',
+  apiFilter: {
+    scope: 'url',
+    include: /\/api\/Alert\/FindAlert(Overview|Trend)$/,
+    exclude: '/internal/',
+  },
+})
+```
+
+多个筛选条件取并集（OR）；单个条件内部是 include 匹配且 exclude 不匹配。字符串规则按包含关系匹配，正则按正则匹配，函数接收 URL 或标签字符串：
+
+```ts
+wormaDocs({
+  swagger: 'https://example.com/openapi.json',
+  apiFilter: [
+    { scope: 'url', include: '/api/Alert/FindAlertOverview' },
+    { scope: 'url', include: '/api/Alert/FindAlertTrend' },
+    {
+      scope: 'tag',
+      include: tag => tag.includes('Public'),
+      exclude: 'Internal',
+    },
+  ],
+})
+```
+
+`scope` 可为 `url` 或 `tag`，省略时为 `url`。每个规则至少提供 `include` / `exclude` 之一。筛选也用于可选的请求代码生成。
+
+## Webpack：单个与多个 Swagger
+
+### 单个 Swagger
 
 ```js
 const { WormaDocsWebpackPlugin } = require('plugin-worma-docs/webpack')
@@ -271,24 +357,318 @@ const { WormaDocsWebpackPlugin } = require('plugin-worma-docs/webpack')
 module.exports = {
   plugins: [
     new WormaDocsWebpackPlugin({
-      swagger: 'https://petstore3.swagger.io/api/v3/openapi.json',
+      swagger: 'https://example.com/knowledgebase/openapi.json',
       output: 'src/api/aidocs',
+      tags: ['KnowledgeBase'],
+      generateClient: true,
+      client: {
+        output: 'src/api/generated/knowledgebase',
+        library: 'axios',
+        type: 'module',
+        nameStyle: 'camelCase',
+      },
     }),
   ],
 }
 ```
 
-## Options
+省略 `generateClient` 和 `client` 即为只生成 Markdown。
 
-| Name | Default | Description |
+### 多个 Swagger
+
+```js
+const { WormaDocsWebpackPlugin } = require('plugin-worma-docs/webpack')
+
+module.exports = {
+  plugins: [
+    new WormaDocsWebpackPlugin({
+      generateClient: true,
+      client: {
+        library: 'axios',
+        type: 'module',
+        nameStyle: 'camelCase',
+      },
+      swagger: [
+        {
+          swagger: 'https://example.com/knowledgebase/openapi.json',
+          output: 'src/api/aidocs/knowledgebase',
+          client: { output: 'src/api/generated/knowledgebase' },
+        },
+        {
+          swagger: 'https://example.com/orders/openapi.json',
+          output: 'src/api/aidocs/orders',
+          tags: ['Order'],
+          client: {
+            output: 'src/api/generated/orders',
+            library: 'fetch',
+            type: 'typescript',
+          },
+        },
+      ],
+    }),
+  ],
+}
+```
+
+Webpack 和 Vite 共用全部插件选项，包括字符串数组简写、逐来源开关、筛选和继承规则。
+
+## 请求代码配置与继承规则
+
+### 公共默认值与来源级覆盖
+
+1. `generateClient` 默认为 `false`。JSON 使用布尔值 `true` / `false`，不接受字符串 `"yes"`。
+2. 来源级 `generateClient` 优先于顶层值，可以单独开启或关闭。
+3. `client` 按字段合并：来源级只填写 `output` 时，仍继承顶层的 `library`、`type`、`nameStyle`。
+4. 未指定的字段使用内置默认值：Axios、TypeScript、camelCase。
+5. MCP 的来源对象位于 `sources[]`；插件的来源对象位于 `swagger[]`。插件来源没有 `name` 字段。
+6. 插件来源未指定 `output` 时继承顶层 Markdown 目录；未指定自己的 `tags` / `apiFilter` 时继承顶层筛选。
+
+### 单来源与多来源输出目录
+
+| 情况 | 请求代码输出 |
+| --- | --- |
+| 单来源，省略所有 client.output | src/api/generated |
+| 单来源，顶层 client.output 为 generated | generated |
+| 多来源，顶层 client.output 为 generated，来源未指定目录 | generated/source-1、generated/source-2…… |
+| 多来源，所有 client.output 都省略 | src/api/generated/source-1、src/api/generated/source-2…… |
+| 来源级指定 client.output | 直接使用该目录，不再追加 source-N |
+
+`source-N` 取配置数组中的位置，即使某些来源关闭生成，也不会重新编号；它不按 MCP 的 `name` 命名。推荐多来源显式指定目录，避免调整顺序后改变对应关系。
+
+MCP 的相对路径基于配置文件目录；插件的相对路径基于项目根目录（Vite root / Webpack context）。请求输出必须位于该根目录内部，不能写到根目录自身或外部路径。多个请求输出目录不能相同或互相嵌套。
+
+### 方法名、类型与生成文件
+
+默认通过 worma 内置配置 `rename({ scope: 'name', style: 'camelCase' })` 处理方法名：
+
+```text
+post_get_user_info → postGetUserInfo
+post_api_ai_knowledge_query_selectable_tree → postApiAiKnowledgeQuerySelectableTree
+```
+
+只调整方法名及对应声明，不修改 URL、入参字段或响应字段，也不会自动删除路径中的 api、模块名等片段。
+
+| client.type | 主要产物 |
+| --- | --- |
+| typescript | .ts 请求实现与类型声明 |
+| module | ESM .js 请求实现及 .d.ts 声明 |
+| commonjs | .cjs 请求实现及 .d.cts 声明 |
+
+Axios + module 的典型目录：
+
+```text
+generated/
+├── index.js                 # Axios 实例、baseURL、拦截器
+├── helper.js
+├── components.d.ts          # 公共模型类型
+├── .worma-client.json       # 本工具的来源归属标记
+└── services/
+    ├── index.js
+    ├── KnowledgeBase.js     # 按标签分组的方法
+    └── KnowledgeBase.d.ts
+```
+
+生成器不会自动接入业务项目原有的 request 实例、认证或宿主注入，也不会改写页面调用。请根据生成入口配置 baseURL、认证和拦截器，并确认已有请求层是否已解包响应。
+
+### 重新生成与文件保护
+
+输出目录必须是新目录、空目录，或带有本工具归属标记且属于同一来源的目录。不会直接覆盖非空的手写请求目录。生成目录中的文件视为自动产物，重新生成可能覆盖现有内容，业务手写封装应放在其他目录。
+
+关闭 `generateClient` 不会删除已有产物；从 Swagger 移除接口后，也不会自动清理旧文件。请在专用生成目录中管理并按需清理过期产物。
+
+请求生成在隔离进程和临时目录中执行，成功后才复制到目标目录；临时 Swagger 副本和请求生成缓存随后清理。MCP 默认不写磁盘；开启生成后也不会在项目根目录留下 .worma-cache。Vite / Webpack 的 Markdown 生成仍可能产生 .worma 和 .worma-cache。
+
+## 全部配置项
+
+### MCP 顶层配置
+
+| 字段 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| sources | 来源对象数组 | 必填 | 至少一个来源，不接受 Swagger 字符串简写 |
+| generateClient | boolean | false | 所有来源的请求生成默认开关 |
+| client | ClientOptions | 见下表 | 所有来源的请求生成默认设置 |
+
+### MCP 来源配置：sources[]
+
+| 字段 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| name | 非空 string | 必填 | 来源唯一名称，用于工具 source 筛选和接口 ID |
+| swagger | 非空 string | 必填 | HTTP(S) URL 或本地 JSON / YAML 路径 |
+| tags | string[] | 全部标签 | 精确匹配标签，多个标签取并集；空数组表示全部 |
+| generateClient | boolean | 继承顶层，最终 false | 仅控制该来源是否生成请求，不影响只读查询 |
+| client | ClientOptions | 逐字段继承顶层 | 该来源的请求生成配置 |
+
+MCP 的配置对象使用严格校验，不支持插件专用的顶层 `swagger`、`output`、`tags`、`apiFilter`、`enable`、`force`。标签筛选应写在来源内部。
+
+### Vite / Webpack 顶层配置
+
+| 字段 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| swagger | string / string[] / 来源对象数组 | 必填 | 单个或多个独立 Swagger |
+| output | string | src/api/aidocs | Markdown 输出目录 |
+| tags | string[] | 全部接口 | worma 标签筛选快捷方式，与 apiFilter 互斥 |
+| apiFilter | FilterApiConfig / FilterApiConfig[] | 全部接口 | URL / 标签筛选规则，与 tags 互斥 |
+| enable | boolean | true | false 时跳过 Markdown 和请求代码生成 |
+| force | boolean | false | 忽略 Markdown 生成的 worma 缓存；Webpack 中也允许后续运行再次进入生成流程 |
+| generateClient | boolean | false | 请求代码生成默认开关 |
+| client | ClientOptions | 见下表 | 请求生成默认设置 |
+
+插件的 `tags` 使用 worma 的 tag/include 字符串匹配语义；MCP 来源的 `tags` 是精确匹配。需要严格控制插件筛选时可使用 `apiFilter` 正则或函数。
+
+### Vite / Webpack 来源配置：swagger[]
+
+| 字段 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| swagger | string | 必填 | 该来源的 URL / 本地路径 |
+| output | string | 继承顶层 | 独立的 Markdown 输出目录 |
+| tags | string[] | 继承顶层筛选 | 与该层 apiFilter 互斥；空数组可清除继承的标签筛选 |
+| apiFilter | FilterApiConfig / FilterApiConfig[] | 继承顶层筛选 | 与该层 tags 互斥；空数组可清除继承筛选 |
+| generateClient | boolean | 继承顶层 | 该来源的请求生成开关 |
+| client | ClientOptions | 逐字段继承顶层 | 该来源的请求生成配置 |
+
+`enable` 和 `force` 只支持插件顶层，不支持逐来源设置。
+
+### 公共 ClientOptions：client
+
+| 字段 | 类型 / 可选值 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| output | 非空 string | src/api/generated | 请求代码目录，多来源分目录规则见上文 |
+| library | axios / fetch / ky | axios | worma 内置请求模板 |
+| type | typescript / module / commonjs | typescript | 请求实现格式 |
+| nameStyle | camelCase / snakeCase / pascalCase | camelCase | 方法名风格，不能用 kebabCase 生成 JS 标识符 |
+
+只填写 `client` 不会开启生成，必须由顶层或来源级 `generateClient: true` 显式开启。
+
+### 插件运行时机与错误处理
+
+- Vite：在 `configResolved` 中获取 root，在 `buildStart` 时进入生成流程。
+- Webpack：监听 `beforeRun` / `watchRun`；默认每个插件实例只尝试一次，`force: true` 时后续运行也会重新尝试。
+- 插件的文档或请求生成失败会记录警告，不阻断业务构建。
+- MCP：全部来源加载完成，并完成显式开启的请求生成后，才连接 stdio；失败时通过 stderr 报错并退出。
+- MCP 配置或 Swagger 更新后，需要重启服务。当前没有定时刷新或文件监听选项。
+- `force` 不控制请求生成缓存：进入已开启的请求生成流程时会重新生成。
+
+## MCP 工具与只读范围
+
+| 工具 | 参数 | 返回内容 |
 | --- | --- | --- |
-| `swagger` | required | One URL, several URLs, or `{ swagger, tags?, output? }` objects |
-| `output` | `src/api/aidocs` | Handbook directory, relative to project root |
-| `tags` | all tags | Shortcut for `{ scope: 'tag', include }`. Mutually exclusive with `apiFilter` |
-| `apiFilter` | all APIs | Same as wormajs `apiFilter()`. Mutually exclusive with `tags` |
-| `enable` | `true` | Skip generation when `false` |
-| `force` | `false` | Ignore worma cache and refetch the spec |
-| `generateClient` | `false` | Also generate HTTP request code; may be overridden per source |
-| `client` | see above | Request code output directory, library, and JS/TS format |
+| list_apis | source?、tag?、method?、offset?、limit? | 来源名称、接口摘要、接口 ID、总数和分页位置 |
+| search_apis | query 必填，以及上述筛选参数 | 搜索路径、摘要、描述、operationId 和标签 |
+| get_api_detail | id 必填、maxDepth? | 完整的文档契约及引用展开警告 |
 
-Generation runs once on Vite `buildStart` and once on Webpack `beforeRun` / first `watchRun`. A failed fetch logs a warning and does not fail the build.
+- `source` 和 `tag` 精确匹配；`method` 使用 GET / POST / PUT / PATCH / DELETE / HEAD / OPTIONS / TRACE 大写值。
+- `offset` 默认 0，必须是非负整数；`limit` 默认 20，范围 1–100。返回的 `nextOffset` 为 null 表示结束。
+- `query` 忽略大小写，空格分隔的词需全部匹配，长度 1–500。
+- `id` 使用列表或搜索返回的完整值，例如 `knowledgebase::POST /api/Example/Query`。
+- `maxDepth` 默认 8，范围 1–20，限制内部引用展开层数。
+
+详情包含参数位置、必填项、请求体、响应状态码、媒体类型、响应头、嵌套字段、枚举、约束、示例和认证声明。保留 allOf / oneOf / anyOf 的含义。循环、缺失和外部引用出现在 warnings 中，并以 x-worma-ref-status 标注；结构截断使用 x-worma-truncated。文档未定义的字段代表未知，不会推断实际调用结果。
+
+MCP 查询支持 Swagger 2.0、OpenAPI 3.0 / 3.1。远程文档超时 30 秒，大小上限 20 MiB，不跟随 HTTP 重定向，当前不支持自定义认证请求头。外部引用不会由查询工具自动读取，多文件规范建议预先打包为一个文档。
+
+三个工具均只读：不修改 Swagger、不执行业务接口、不接受任意 URL 或文件路径，也不能开启代码生成。代码生成只能由用户在启动配置中明确启用。客户端其他终端、文件编辑工具的权限需单独控制。stdout 专用于 MCP 协议，日志使用 stderr。
+
+可向 AI 提问：
+
+> 先使用 MCP 搜索知识库目录接口，读取入参和响应，再用项目已有的 request 封装实现调用。
+
+### 程序化使用
+
+```ts
+import path from 'node:path'
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
+import {
+  loadConfig,
+  OpenApiRepository,
+  createWormaMcpServer,
+} from 'plugin-worma-docs/mcp'
+
+const filename = path.resolve('worma-mcp.json')
+const config = await loadConfig(filename)
+const baseDir = path.dirname(filename)
+const repository = await OpenApiRepository.load(config, baseDir)
+
+// 可选启动动作：不开启 generateClient 时不产生任何请求代码。
+await repository.generateClients(config, baseDir)
+
+const server = createWormaMcpServer(repository)
+await server.connect(new StdioServerTransport())
+```
+
+直接使用 SDK 传输层时，请在宿主项目显式安装 `@modelcontextprotocol/sdk`。仅使用命令行入口时不需要额外安装 SDK。
+
+三个入口导出公共 `ClientOptions` / `ClientGenerationSettings` 类型；构建插件还导出 `WormaDocsOptions` / `WormaDocsSource` / `FilterApiConfig`，MCP 入口导出 `McpConfig` / `OpenApiSource` / `ApiSummary` / `ApiQuery`。
+
+## 本地开发、测试与发布
+
+仓库采用单包、多入口结构，无需 pnpm-workspace.yaml。playground、playground-webpack、playground-mcp 分别演示 Vite、Webpack 和 MCP。
+
+### 本地启动
+
+```sh
+pnpm install
+pnpm build
+pnpm dev
+# 或：
+pnpm dev:webpack
+# 或：
+pnpm dev:mcp
+```
+
+`dev:mcp` 使用 playground-mcp/worma-mcp.json。该示例明确开启了 Axios + ESM JavaScript + camelCase 生成，产物保留在 playground-mcp/generated，已被 Git 忽略；包本身的生成默认值仍是 false。
+
+使用本地构建入口接入客户端：
+
+```json
+{
+  "mcpServers": {
+    "worma-docs-local": {
+      "command": "node",
+      "args": [
+        "D:/project/learn/vite-plugin-worma-docs/dist/mcp-cli.js",
+        "--config",
+        "D:/project/learn/vite-plugin-worma-docs/playground-mcp/worma-mcp.json"
+      ]
+    }
+  }
+}
+```
+
+请替换为自己的绝对路径。修改源码后需要重新构建，并重启客户端中的服务。
+
+### 测试
+
+```sh
+pnpm typecheck
+pnpm test
+pnpm test:mcp:live
+pnpm test:mcp:live --generate-client
+```
+
+- typecheck：检查 TypeScript 类型。
+- test：构建三个入口，运行本地 OpenAPI、MCP 协议、代码生成及方法命名测试，不访问公司网关。
+- test:mcp:live：读取示例配置中的公司 Swagger，验证列表、搜索和详情；按示例配置生成并保留请求实现供查看。
+- 追加 --generate-client：将公司接口生成到临时目录中验证，结束后清理；已有 playground 产物不会被删除。
+
+实测只读取 Swagger 文档，不调用业务接口。
+
+### 发布准备
+
+先完成类型检查和本地测试，再更新版本、检查发布内容：
+
+```sh
+pnpm typecheck
+pnpm test
+npm version patch --no-git-tag-version
+npm pack --dry-run --ignore-scripts
+```
+
+`npm version patch` 更新 package.json 中的补丁版本，不创建 Git 标签；根据实际发布计划也可以选择其他版本号。已发布的版本号不能重复使用。
+
+发布包包含 dist、templates、README 和 LICENSE，不包含公司测试产物、playground 或 tests。确认版本、产物和 npm 账号正确后，执行：
+
+```sh
+npm publish
+```
+
+prepublishOnly 会再次构建。发布后，将客户端中固定的旧包版本更新到新版本并重启 MCP。

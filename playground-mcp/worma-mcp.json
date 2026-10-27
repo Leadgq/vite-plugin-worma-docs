@@ -3,7 +3,8 @@
   "client": {
     "output": "generated",
     "library": "axios",
-    "type": "module"
+    "type": "module",
+    "nameStyle": "camelCase"
   },
   "sources": [
     {

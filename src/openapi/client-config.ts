@@ -4,6 +4,8 @@ export const clientOptionsSchema = z.object({
   output: z.string().trim().min(1).optional(),
   library: z.enum(['axios', 'fetch', 'ky']).optional(),
   type: z.enum(['typescript', 'module', 'commonjs']).optional(),
+  /** worma rename(scope: 'name') style; never changes URLs or payload fields. */
+  nameStyle: z.enum(['camelCase', 'snakeCase', 'pascalCase']).optional(),
 }).strict()
 
 export const clientSettingsShape = {

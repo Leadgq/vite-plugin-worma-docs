@@ -20,3 +20,5 @@ pnpm dev:mcp
 运行 `pnpm test:mcp:live` 会生成并保留这些实现；追加 `--generate-client` 则使用临时目录验证，结束后清理。`generated/index.js` 是 Axios 实例入口，`generated/services/` 中是按接口标签分组的请求函数，旁边的 `.d.ts` 文件提供类型声明。该目录已被 Git 忽略，不会提交公司接口产物。
 
 把本示例的 `generateClient` 改为 `false` 可停止后续生成，已生成的文件仍会保留。查询工具始终只读；完整选项见根目录 README。
+
+方法名使用 `client.nameStyle: "camelCase"`，例如 `postApiAiKnowledgeQuerySelectableTree`，通过 worma 内置的 `rename` 插件生成；请求和响应字段保留 Swagger 原名。

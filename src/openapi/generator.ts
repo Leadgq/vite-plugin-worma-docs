@@ -34,7 +34,7 @@ process.stdin.on('end', async () => {
     const results = await generate({ generator: [{
       input: job.input, output: job.output, type: job.type,
       performance: { workerPool: false },
-      plugins: [plugins[job.library]()],
+      plugins: [plugins[job.library](), plugins.rename({ scope: 'name', style: job.nameStyle })],
     }] }, { projectPath: job.scratch, force: true });
     if (results.length !== 1 || results[0] !== true) throw new Error('worma did not generate the client');
   } catch (error) {
@@ -151,6 +151,7 @@ export async function generateClients(
       await writeFile(input, JSON.stringify(document))
       await runWorker({
         input, output: stagedOutput, scratch, library: client.library ?? 'axios', type: client.type ?? 'typescript',
+        nameStyle: client.nameStyle ?? 'camelCase',
         wormaPath: require.resolve('wormajs'), pluginPath: require.resolve('wormajs/plugin'),
       })
       // Only copy a successful generation; retry ownership checks after the worker finishes.

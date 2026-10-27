@@ -85,6 +85,30 @@ test('opt-in generates axios/fetch/ky clients with schemas and honors tag select
   })
 })
 
+test('worma name renaming defaults to camelCase and preserves URLs and payload fields', async () => {
+  await withProject(async directory => {
+    const schema = { type: 'object', properties: { User_Name: { type: 'string' } } }
+    const repo = new OpenApiRepository([{ source: { name: 'naming', swagger: 'unused' }, document: {
+      openapi: '3.0.3', info: { title: 'Naming', version: '1' },
+      paths: { '/api/user-info': { post: {
+        operationId: 'post_get_user_info', tags: ['Users'],
+        requestBody: { content: { 'application/json': { schema } } },
+        responses: { 200: { description: 'OK', content: { 'application/json': { schema } } } },
+      } } },
+    } }])
+    for (const [nameStyle, expected] of [[undefined, 'postGetUserInfo'], ['snakeCase', 'post_get_user_info'], ['pascalCase', 'PostGetUserInfo']]) {
+      const output = `naming-${nameStyle ?? 'default'}`
+      await repo.generateClients({ generateClient: true, client: { output, nameStyle, type: 'module' } }, directory)
+      const service = await readFile(path.join(directory, output, 'services', 'Users.js'), 'utf8')
+      const declarations = await readFile(path.join(directory, output, 'services', 'Users.d.ts'), 'utf8')
+      assert.ok(service.includes(`export function ${expected}(`))
+      assert.ok(declarations.includes(expected))
+      assert.ok(service.includes('/api/user-info'))
+      assert.ok(declarations.includes('User_Name'))
+    }
+  })
+})
+
 test('output validation protects existing files and rejects overlap and paths outside project', async () => {
   await withProject(async directory => {
     const { mkdir } = await import('node:fs/promises')

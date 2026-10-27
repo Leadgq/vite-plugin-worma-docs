@@ -1,0 +1,8 @@
+{
+  "sources": [
+    {
+      "name": "knowledgebase",
+      "swagger": "https://dev3-gateway.hnyotech.com.cn/knowledgebaseapi/swagger/v1/swagger.json"
+    }
+  ]
+}

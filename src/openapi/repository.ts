@@ -16,10 +16,26 @@ interface Entry {
   operation: JsonObject
 }
 
-export class OpenApiRepository {
-  private readonly entries = new Map<string, Entry>()
+interface SourceState {
+  loadedAt: number
+  attemptedAt: number
+  error?: string
+  inflight?: Promise<void>
+}
 
-  constructor(private readonly sources: LoadedSource[]) {
+export class OpenApiRepository {
+  private entries: Map<string, Entry>
+  private readonly states = new Map<string, SourceState>()
+
+  constructor(private sources: LoadedSource[], private readonly baseDir?: string, private readonly refreshIntervalSeconds = 60) {
+    this.entries = OpenApiRepository.buildEntries(sources)
+    for (const { source, loadedAt = Date.now() } of sources) {
+      this.states.set(source.name, { loadedAt, attemptedAt: loadedAt })
+    }
+  }
+
+  private static buildEntries(sources: LoadedSource[]) {
+    const entries = new Map<string, Entry>()
     for (const loaded of sources) {
       const { source, document } = loaded
       for (const [apiPath, rawPathItem] of Object.entries(object(document.paths))) {
@@ -35,10 +51,11 @@ export class OpenApiRepository {
             operationId: optionalString(operation.operationId), summary: optionalString(operation.summary),
             tags, deprecated: operation.deprecated === true,
           }
-          this.entries.set(id, { summary, loaded, pathItem, operation })
+          entries.set(id, { summary, loaded, pathItem, operation })
         }
       }
     }
+    return entries
   }
 
   static async load(config: McpConfig, baseDir: string): Promise<OpenApiRepository> {
@@ -46,7 +63,82 @@ export class OpenApiRepository {
     // Sequential loading keeps request concurrency bounded for internal gateways.
     const loaded: LoadedSource[] = []
     for (const source of checked.sources) loaded.push(await loadSource(source, baseDir))
-    return new OpenApiRepository(loaded)
+    return new OpenApiRepository(loaded, baseDir, checked.refreshIntervalSeconds ?? 60)
+  }
+
+  private selectedSources(name?: string) {
+    if (name && !this.states.has(name)) throw new Error(`Unknown source: ${name}`)
+    return this.sources.filter(({ source }) => !name || source.name === name)
+  }
+
+  private sourceStatus(name: string) {
+    const { source } = this.sources.find(item => item.source.name === name)!
+    const state = this.states.get(name)!
+    const interval = source.refreshIntervalSeconds ?? this.refreshIntervalSeconds
+    return {
+      name,
+      lastLoadedAt: new Date(state.loadedAt).toISOString(),
+      lastRefreshAttemptAt: new Date(state.attemptedAt).toISOString(),
+      refreshIntervalSeconds: interval,
+      automaticRefreshEnabled: Boolean(this.baseDir) && interval > 0,
+      stale: Boolean(state.error) || (interval > 0 && Date.now() - state.loadedAt >= interval * 1000),
+      lastRefreshError: state.error ?? null,
+    }
+  }
+
+  private async refreshSource(name: string, force: boolean): Promise<void> {
+    const state = this.states.get(name)!
+    if (state.inflight) return state.inflight
+    const { source } = this.sources.find(item => item.source.name === name)!
+    const interval = source.refreshIntervalSeconds ?? this.refreshIntervalSeconds
+    // Failed automatic attempts also back off for one interval; explicit refresh bypasses this.
+    const checkedAt = state.error ? state.attemptedAt : state.loadedAt
+    if (!force && (interval === 0 || Date.now() - checkedAt < interval * 1000)) return
+    state.attemptedAt = Date.now()
+    state.inflight = (async () => {
+      try {
+        const loaded = await loadSource(source, this.baseDir!)
+        const nextSources = this.sources.map(item => item.source.name === name ? loaded : item)
+        const nextEntries = OpenApiRepository.buildEntries(nextSources)
+        // Swap only complete, parsed snapshots. Queries never see half-built indexes.
+        this.sources = nextSources
+        this.entries = nextEntries
+        state.loadedAt = loaded.loadedAt!
+        state.error = undefined
+      }
+      catch (error) {
+        state.error = error instanceof Error ? error.message : String(error)
+      }
+      finally { state.inflight = undefined }
+    })()
+    return state.inflight
+  }
+
+  /** Refresh expired configured sources; does not execute APIs or generate files. */
+  async ensureFresh(source?: string): Promise<void> {
+    const selected = this.selectedSources(source)
+    if (!this.baseDir) return
+    for (const item of selected) await this.refreshSource(item.source.name, false)
+  }
+
+  /** Force rereading configured sources, even when automatic refresh is disabled. */
+  async refresh(source?: string) {
+    const selected = this.selectedSources(source)
+    if (!this.baseDir) throw new Error('Refresh requires a repository created with OpenApiRepository.load')
+    for (const item of selected) await this.refreshSource(item.source.name, true)
+    const sources = selected.map(item => this.sourceStatus(item.source.name))
+    return { success: sources.every(item => item.lastRefreshError === null), sources,
+      note: 'Only configured Swagger documents were reread. No API was executed and no client code was generated.' }
+  }
+
+  async listFresh(query: ApiQuery = {}) {
+    await this.ensureFresh(query.source)
+    return this.list(query)
+  }
+
+  async detailFresh(id: string, maxDepth = 8) {
+    await this.ensureFresh(this.entries.get(id)?.summary.source)
+    return this.detail(id, maxDepth)
   }
 
   /** Explicit configuration action, separate from the read-only MCP tools. */
@@ -73,7 +165,7 @@ export class OpenApiRepository {
     }
     return {
       sources: this.sources.map(({ source, document }) => ({
-        name: source.name, info: document.info,
+        ...this.sourceStatus(source.name), info: document.info,
         apiCount: [...this.entries.values()].filter(entry => entry.summary.source === source.name).length,
       })),
       total: matches.length, offset, limit,
@@ -115,7 +207,7 @@ export class OpenApiRepository {
       securitySchemes: object(document.components).securitySchemes ?? document.securityDefinitions ?? {},
     }
     const expanded = expandReferences(document, detail, maxDepth)
-    return { api: expanded.value, warnings: expanded.warnings,
+    return { api: expanded.value, warnings: expanded.warnings, freshness: this.sourceStatus(summary.source),
       note: 'Documented contract only; no API is executed. Missing schemas are unknown, not inferred.' }
   }
 }

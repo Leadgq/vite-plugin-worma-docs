@@ -7,5 +7,5 @@ export function registerSearchApis(server: McpServer, repository: OpenApiReposit
   server.registerTool('search_apis', {
     description: 'Search API paths, summaries, descriptions, operationIds and tags. Case-insensitive; all whitespace-separated terms must match. Returns summaries; fetch details by id.',
     inputSchema: z.object({ ...queryShape, query: z.string().trim().min(1).max(500) }).strict(), annotations,
-  }, args => result(() => repository.list(args)))
+  }, args => result(() => repository.listFresh(args)))
 }

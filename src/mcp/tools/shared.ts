@@ -10,12 +10,12 @@ export const queryShape = {
 }
 
 export const annotations = {
-  readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false,
+  readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true,
 }
 
-export function result(run: () => unknown): CallToolResult {
+export async function result(run: () => unknown | Promise<unknown>): Promise<CallToolResult> {
   try {
-    const data = run() as Record<string, unknown>
+    const data = await run() as Record<string, unknown>
     return { content: [{ type: 'text', text: JSON.stringify(data) }], structuredContent: data }
   }
   catch (error) {

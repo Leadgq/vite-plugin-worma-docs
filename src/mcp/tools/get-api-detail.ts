@@ -10,5 +10,5 @@ export function registerGetApiDetail(server: McpServer, repository: OpenApiRepos
       id: z.string().min(1).describe('Exact id returned by list_apis or search_apis'),
       maxDepth: z.number().int().min(1).max(20).default(8).describe('Maximum nested reference expansion depth'),
     }).strict(), annotations,
-  }, ({ id, maxDepth }) => result(() => repository.detail(id, maxDepth)))
+  }, ({ id, maxDepth }) => result(() => repository.detailFresh(id, maxDepth)))
 }

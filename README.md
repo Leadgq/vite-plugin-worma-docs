@@ -68,6 +68,44 @@ MCP 配置是一个 JSON 文件，例如项目根目录的 `worma-mcp.json`。�
 
 省略 `generateClient` 等同于 `false`。也可以显式填写 `"generateClient": false`。
 
+### Swagger 更新与刷新
+
+默认每个来源的快照有效期为 **60 秒**。列表、搜索和详情工具在查询时检查是否过期，过期后重新读取 Swagger / 本地文件，再返回结果；没有查询时不做后台轮询。
+
+```json
+{
+  "refreshIntervalSeconds": 60,
+  "sources": [
+    {
+      "name": "knowledgebase",
+      "swagger": "https://example.com/knowledgebase/openapi.json",
+      "refreshIntervalSeconds": 15
+    },
+    {
+      "name": "orders",
+      "swagger": "./specs/orders.yaml"
+    }
+  ]
+}
+```
+
+来源级设置覆盖顶层间隔：上例 knowledgebase 为 15 秒，orders 为 60 秒。范围为 0–86400 秒；`0` 关闭自动刷新，仍可手动刷新。后端刚更新、尚未到期时，可让 AI 调用 `refresh_apis`，传入 `source: "knowledgebase"` 只刷新一个来源，或省略 source 刷新全部。
+
+列表/搜索的 `sources[]`、详情的 `freshness` 以及刷新工具的 `sources[]` 都包含：
+
+| 字段 | 含义 |
+| --- | --- |
+| lastLoadedAt | 上一次成功读取并建立索引的时间，ISO 8601 UTC；不代表后端修改时间 |
+| lastRefreshAttemptAt | 最近一次读取尝试的时间 |
+| refreshIntervalSeconds | 该来源实际采用的刷新间隔 |
+| automaticRefreshEnabled | 是否开启查询时自动刷新 |
+| stale | 快照是否已过期或最近一次刷新失败；关闭自动刷新并不保证后端未变化 |
+| lastRefreshError | 最近一次刷新错误，成功时为 null |
+
+同一来源的并发刷新会合并为一次读取。读取或解析失败时保留上一次成功的接口数据，标记 stale 和错误，不清空接口；自动失败后按该来源间隔退避，手动刷新可立即重试。多来源分别更新，某来源失败不丢失其他来源的数据。`refresh_apis` 的 success 为 false 时，MCP 返回 isError，并附带各来源状态。
+
+刷新仅重新读取配置中允许的文档，不修改 Swagger、不执行业务接口，也不会重新生成请求代码。需要更新已生成的请求代码时仍需重启服务或重新运行生成流程。修改来源 URL、标签、生成配置或刷新间隔等配置文件内容后，需要重启服务才能生效。
+
 ### 单个 Swagger：查询并生成请求代码
 
 ```json
@@ -487,6 +525,7 @@ generated/
 | sources | 来源对象数组 | 必填 | 至少一个来源，不接受 Swagger 字符串简写 |
 | generateClient | boolean | false | 所有来源的请求生成默认开关 |
 | client | ClientOptions | 见下表 | 所有来源的请求生成默认设置 |
+| refreshIntervalSeconds | 0–86400 的整数 | 60 | 查询时自动刷新的快照有效期，单位秒；0 关闭自动刷新 |
 
 ### MCP 来源配置：sources[]
 
@@ -497,6 +536,7 @@ generated/
 | tags | string[] | 全部标签 | 精确匹配标签，多个标签取并集；空数组表示全部 |
 | generateClient | boolean | 继承顶层，最终 false | 仅控制该来源是否生成请求，不影响只读查询 |
 | client | ClientOptions | 逐字段继承顶层 | 该来源的请求生成配置 |
+| refreshIntervalSeconds | 0–86400 的整数 | 继承顶层，最终 60 | 单独设置该来源的快照有效期；0 关闭该来源自动刷新 |
 
 MCP 的配置对象使用严格校验，不支持插件专用的顶层 `swagger`、`output`、`tags`、`apiFilter`、`enable`、`force`。标签筛选应写在来源内部。
 
@@ -545,7 +585,7 @@ MCP 的配置对象使用严格校验，不支持插件专用的顶层 `swagger`
 - Webpack：监听 `beforeRun` / `watchRun`；默认每个插件实例只尝试一次，`force: true` 时后续运行也会重新尝试。
 - 插件的文档或请求生成失败会记录警告，不阻断业务构建。
 - MCP：全部来源加载完成，并完成显式开启的请求生成后，才连接 stdio；失败时通过 stderr 报错并退出。
-- MCP 配置或 Swagger 更新后，需要重启服务。当前没有定时刷新或文件监听选项。
+- MCP 配置更新后需要重启；Swagger 内容更新通过查询时过期刷新或 refresh_apis 获取。当前没有后台轮询或文件监听。
 - `force` 不控制请求生成缓存：进入已开启的请求生成流程时会重新生成。
 
 ## MCP 工具与只读范围
@@ -555,6 +595,7 @@ MCP 的配置对象使用严格校验，不支持插件专用的顶层 `swagger`
 | list_apis | source?、tag?、method?、offset?、limit? | 来源名称、接口摘要、接口 ID、总数和分页位置 |
 | search_apis | query 必填，以及上述筛选参数 | 搜索路径、摘要、描述、operationId 和标签 |
 | get_api_detail | id 必填、maxDepth? | 完整的文档契约及引用展开警告 |
+| refresh_apis | source? | 强制重新读取指定来源或全部来源，返回成功标记及刷新时间/错误；不生成文件 |
 
 - `source` 和 `tag` 精确匹配；`method` 使用 GET / POST / PUT / PATCH / DELETE / HEAD / OPTIONS / TRACE 大写值。
 - `offset` 默认 0，必须是非负整数；`limit` 默认 20，范围 1–100。返回的 `nextOffset` 为 null 表示结束。
@@ -566,7 +607,7 @@ MCP 的配置对象使用严格校验，不支持插件专用的顶层 `swagger`
 
 MCP 查询支持 Swagger 2.0、OpenAPI 3.0 / 3.1。远程文档超时 30 秒，大小上限 20 MiB，不跟随 HTTP 重定向，当前不支持自定义认证请求头。外部引用不会由查询工具自动读取，多文件规范建议预先打包为一个文档。
 
-三个工具均只读：不修改 Swagger、不执行业务接口、不接受任意 URL 或文件路径，也不能开启代码生成。代码生成只能由用户在启动配置中明确启用。客户端其他终端、文件编辑工具的权限需单独控制。stdout 专用于 MCP 协议，日志使用 stderr。
+四个工具均只读：不修改 Swagger、不执行业务接口、不接受任意 URL 或文件路径，也不能开启代码生成。代码生成只能由用户在启动配置中明确启用。客户端其他终端、文件编辑工具的权限需单独控制。stdout 专用于 MCP 协议，日志使用 stderr。
 
 可向 AI 提问：
 
@@ -590,6 +631,10 @@ const repository = await OpenApiRepository.load(config, baseDir)
 
 // 可选启动动作：不开启 generateClient 时不产生任何请求代码。
 await repository.generateClients(config, baseDir)
+
+// 程序化查询使用异步方法检查有效期；list()/detail() 仍保留为同步快照读取。
+await repository.listFresh({ source: 'knowledgebase' })
+// 强制刷新（可选）：await repository.refresh('knowledgebase')
 
 const server = createWormaMcpServer(repository)
 await server.connect(new StdioServerTransport())
@@ -646,7 +691,7 @@ pnpm test:mcp:live --generate-client
 ```
 
 - typecheck：检查 TypeScript 类型。
-- test：构建三个入口，运行本地 OpenAPI、MCP 协议、代码生成及方法命名测试，不访问公司网关。
+- test：构建三个入口，运行本地 OpenAPI、MCP 协议、自动/手动刷新、失败回退、代码生成及方法命名测试，不访问公司网关。
 - test:mcp:live：读取示例配置中的公司 Swagger，验证列表、搜索和详情；按示例配置生成并保留请求实现供查看。
 - 追加 --generate-client：将公司接口生成到临时目录中验证，结束后清理；已有 playground 产物不会被删除。
 

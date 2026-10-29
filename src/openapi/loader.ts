@@ -15,8 +15,8 @@ export async function loadConfig(filename: string): Promise<McpConfig> {
 }
 
 async function readRemote(url: URL): Promise<string> {
-  // Only startup configuration selects URLs. Tools never fetch URLs or follow external $refs.
-  const response = await fetch(url, { signal: AbortSignal.timeout(30_000), redirect: 'error' })
+  // URLs come only from startup configuration. Queries/refresh cannot select arbitrary URLs or external $refs.
+  const response = await fetch(url, { signal: AbortSignal.timeout(30_000), redirect: 'error', cache: 'no-store' })
   if (!response.ok) throw new Error(`HTTP ${response.status}`)
   if (!response.body) throw new Error('Empty response body')
   const reader = response.body.getReader()
@@ -55,7 +55,7 @@ export async function loadSource(source: OpenApiSource, baseDir: string): Promis
     const text = /^https?:\/\//i.test(source.swagger)
       ? await readRemote(new URL(source.swagger))
       : await readLocal(path.resolve(baseDir, source.swagger))
-    return { source, document: parseDocument(text) }
+    return { source, document: parseDocument(text), loadedAt: Date.now() }
   }
   catch (error) {
     // Avoid printing configured URLs (which may contain credentials).

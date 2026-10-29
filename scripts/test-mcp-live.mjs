@@ -27,7 +27,10 @@ const client = new Client({ name: 'worma-live-test', version: '1' })
 try {
   await client.connect(transport)
   const { tools } = await client.listTools()
-  assert.equal(tools.length, 3)
+  assert.equal(tools.length, 4)
+  const refreshed = await client.callTool({ name: 'refresh_apis', arguments: {} })
+  assert.equal(refreshed.structuredContent.success, true)
+  assert.ok(refreshed.structuredContent.sources.every(source => source.lastLoadedAt && !source.stale && source.lastRefreshError === null))
   const listed = await client.callTool({ name: 'list_apis', arguments: { limit: 100 } })
   assert.ok(!listed.isError)
   const { total, apis } = listed.structuredContent
@@ -59,7 +62,8 @@ try {
     assert.ok(code.includes('axios'), 'Generated client should use Axios')
   }
   console.log(JSON.stringify({ tools: tools.map(tool => tool.name), total, method: api.method,
-    path: api.path, requestFields, responseFields, warnings, generatedJavaScriptFiles: generatedFiles?.length }, null, 2))
+    path: api.path, requestFields, responseFields, warnings, freshness: detailed.structuredContent.freshness,
+    generatedJavaScriptFiles: generatedFiles?.length }, null, 2))
 }
 catch (error) {
   if (stderr) process.stderr.write(stderr)

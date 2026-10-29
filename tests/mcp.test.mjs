@@ -10,12 +10,13 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 
 test('stdio handshake, read-only tools, validation, query and no subsequent network access', async () => {
   const requests = []
+  let revision = 1
   const http = createServer((req, res) => {
     requests.push({ method: req.method, url: req.url })
     res.setHeader('Content-Type', 'application/json')
     res.end(JSON.stringify({ openapi: '3.0.3', info: { title: 'Health', version: '1.0' }, paths: { '/health': { get: {
       summary: 'Health check', responses: { 200: { description: 'OK', content: {
-        'application/json': { schema: { type: 'object', properties: { healthy: { type: 'boolean' } } } },
+        'application/json': { schema: { type: 'object', properties: { healthy: { type: 'boolean' }, revision: { type: 'integer', enum: [revision] } } } },
       } } },
     } } } }))
   })
@@ -32,7 +33,7 @@ test('stdio handshake, read-only tools, validation, query and no subsequent netw
   try {
     await client.connect(transport)
     const { tools } = await client.listTools()
-    assert.deepEqual(tools.map(tool => tool.name).sort(), ['get_api_detail', 'list_apis', 'search_apis'])
+    assert.deepEqual(tools.map(tool => tool.name).sort(), ['get_api_detail', 'list_apis', 'refresh_apis', 'search_apis'])
     assert.ok(tools.every(tool => tool.annotations.readOnlyHint && !tool.annotations.destructiveHint))
     const list = await client.callTool({ name: 'list_apis', arguments: {} })
     assert.equal(list.structuredContent.total, 1)
@@ -47,6 +48,15 @@ test('stdio handshake, read-only tools, validation, query and no subsequent netw
     assert.deepEqual(requests, [{ method: 'GET', url: '/swagger.json' }])
     assert.equal(stderr, '')
     assert.equal(await (await import('node:fs/promises')).readFile(configFile, 'utf8'), configText)
+    revision = 2
+    const refreshed = await client.callTool({ name: 'refresh_apis', arguments: { source: 'health' } })
+    assert.equal(refreshed.structuredContent.success, true)
+    assert.ok(refreshed.structuredContent.sources[0].lastLoadedAt)
+    const updated = await client.callTool({ name: 'get_api_detail', arguments: { id } })
+    assert.deepEqual(updated.structuredContent.api.responses[200].content['application/json'].schema.properties.revision.enum, [2])
+    assert.equal(updated.structuredContent.freshness.stale, false)
+    assert.equal((await client.callTool({ name: 'refresh_apis', arguments: { source: 'missing' } })).isError, true)
+    assert.equal((await client.callTool({ name: 'refresh_apis', arguments: { swagger: 'http://never-fetch.invalid' } })).isError, true)
     await client.close()
     await writeFile(configFile, JSON.stringify({ ...JSON.parse(configText), generateClient: true,
       client: { library: 'fetch', output: 'generated', type: 'module' } }))
@@ -60,7 +70,16 @@ test('stdio handshake, read-only tools, validation, query and no subsequent netw
       assert.equal(enabledList.structuredContent.total, 1)
       const generated = await (await import('node:fs/promises')).readFile(path.join(directory, 'generated', 'index.js'), 'utf8')
       assert.match(generated, /fetch/)
-      assert.deepEqual(requests, [{ method: 'GET', url: '/swagger.json' }, { method: 'GET', url: '/swagger.json' }])
+      assert.equal(requests.length, 3)
+      const { readdir, readFile } = await import('node:fs/promises')
+      const output = path.join(directory, 'generated')
+      const generatedFiles = (await readdir(output, { recursive: true })).filter(name => name.endsWith('.js'))
+      const before = await Promise.all(generatedFiles.map(name => readFile(path.join(output, name), 'utf8')))
+      revision = 3
+      await enabledClient.callTool({ name: 'refresh_apis', arguments: {} })
+      const after = await Promise.all(generatedFiles.map(name => readFile(path.join(output, name), 'utf8')))
+      assert.deepEqual(after, before, 'Refreshing documents must not regenerate client files')
+      assert.ok(requests.every(request => request.method === 'GET' && request.url === '/swagger.json'))
     }
     finally { await enabledClient.close(); await enabledTransport.close() }
   }

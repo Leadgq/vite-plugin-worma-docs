@@ -7,5 +7,5 @@ export function registerListApis(server: McpServer, repository: OpenApiRepositor
   server.registerTool('list_apis', {
     description: 'List documented APIs and available source names. Returns paginated summaries and stable ids; use get_api_detail for request/response schemas.',
     inputSchema: z.object(queryShape).strict(), annotations,
-  }, args => result(() => repository.list(args)))
+  }, args => result(() => repository.listFresh(args)))
 }

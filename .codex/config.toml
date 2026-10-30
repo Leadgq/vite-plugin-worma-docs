@@ -1,0 +1,11 @@
+[mcp_servers.worma_docs]
+command = "npx"
+cwd = "C:/Users/EDY"
+args = [
+  "--yes",
+  "--package=plugin-worma-docs@0.1.6",
+  "worma-docs-mcp",
+  "--config",
+  "D:/project/learn/vite-plugin-worma-docs/playground-mcp/worma-mcp.json"
+]
+startup_timeout_sec = 60

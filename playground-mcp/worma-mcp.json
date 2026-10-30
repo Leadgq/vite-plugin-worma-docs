@@ -1,4 +1,5 @@
 {
+  "refreshIntervalSeconds": 3600,
   "generateClient": true,
   "client": {
     "output": "generated",
